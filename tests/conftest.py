@@ -5,6 +5,9 @@ import os
 # won't leak into tests.
 os.environ["BOT_TOKEN"] = "test_token"
 os.environ["ALLOWED_USER_IDS"] = "111,222"
+# Тестовый провайдер по умолчанию — Notion (большая часть тестов писалась под Notion).
+# Тесты Buildin sink явно переключают NOTES_PROVIDER через monkeypatch.
+os.environ["NOTES_PROVIDER"] = "notion"
 
 import pytest_asyncio
 

@@ -152,14 +152,10 @@ async def test_no_database_configured_raises(monkeypatch):
     # NOTION_TOKEN set but DATABASE_ID empty → notion_enabled is False, falls
     # back to stub mode. So no exception expected here. But if notion_enabled
     # AND the per-type DB resolves to None, we DO raise.
-    # Force notion_enabled True via direct call to the real path:
-    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", "")
-    # Easiest: assert the resolver returns falsy and the real path raises.
-    from bot.services.notion_client import _create_page_real
-
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", None)
+    sink = notion_client.get_sink_instance()
     with pytest.raises(RuntimeError, match="no Notion database configured"):
-        await _create_page_real(_draft(note_type="task"))
+        await sink._create_page_real(_draft(note_type="task"))
 
 
 async def test_failure_injector_runs(monkeypatch):
@@ -177,7 +173,7 @@ async def test_failure_injector_runs(monkeypatch):
 async def test_truncates_excess_blocks(monkeypatch):
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "k")
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", "db")
-    monkeypatch.setattr("bot.services.notion_client.MAX_BLOCKS_PER_PAGE", 5)
+    monkeypatch.setattr("bot.services.sinks.notion.MAX_BLOCKS_PER_PAGE", 5)
 
     fake = MagicMock()
     fake.pages = MagicMock()

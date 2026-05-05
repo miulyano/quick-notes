@@ -9,6 +9,7 @@ from aiogram import F, Router
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.domain.note_types import get as get_note_type
+from bot.domain.workspaces import get as get_workspace
 from bot.services import llm_processor
 from bot.storage import drafts
 from bot.utils import forward as forward_utils
@@ -22,17 +23,24 @@ def preview_keyboard(draft_id: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="💾 Save", callback_data=f"save:{draft_id}"),
-                InlineKeyboardButton(text="🔁 Type", callback_data=f"chtype:{draft_id}"),
                 InlineKeyboardButton(text="✖️ Cancel", callback_data=f"cancel:{draft_id}"),
-            ]
+            ],
+            [
+                InlineKeyboardButton(text="🔁 Type", callback_data=f"chtype:{draft_id}"),
+                InlineKeyboardButton(text="📁 Workspace", callback_data=f"chws:{draft_id}"),
+            ],
         ]
     )
 
 
-def format_preview(title: str, body: str, note_type_key: str) -> str:
+def format_preview(title: str, body: str, note_type_key: str, workspace_key: str) -> str:
     note_type = get_note_type(note_type_key)
+    workspace = get_workspace(workspace_key)
     body_short = body if len(body) <= 1500 else body[:1500] + "…"
-    return f"<b>{title}</b>\n<i>{note_type.label}</i>\n\n{body_short}"
+    return (
+        f"<b>{title}</b>\n"
+        f"<i>{note_type.label} · 📁 {workspace.label}</i>\n\n{body_short}"
+    )
 
 
 @router.message(F.text & ~F.text.startswith("/"))
@@ -75,8 +83,11 @@ async def handle_text(message: Message) -> None:
         title=processed.title,
         formatted=processed.formatted,
         properties=json.dumps(processed.properties, ensure_ascii=False),
+        workspace=processed.workspace,
     )
 
-    preview = format_preview(processed.title, processed.formatted, processed.note_type)
+    preview = format_preview(
+        processed.title, processed.formatted, processed.note_type, processed.workspace
+    )
     sent = await message.answer(preview, reply_markup=preview_keyboard(draft_id))
     await drafts.update(draft_id, preview_msg_id=sent.message_id)

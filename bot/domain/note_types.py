@@ -27,9 +27,11 @@ PropertyKind = Literal["title", "rich_text", "select", "multi_select", "date", "
 
 @dataclass(frozen=True)
 class NotionProperty:
-    name: str               # Notion DB column name (case-sensitive).
+    name: str               # DB column name (case-sensitive). Применимо и к Notion, и к Buildin.
     kind: PropertyKind
     llm_hint: str = ""      # What this property means — fed into the LLM prompt.
+    select_options: tuple[str, ...] = ()  # Для kind=select/multi_select — фиксированный список опций
+                                          # (используется setup_buildin_dbs для PropertySchemaSelect.options).
 
 
 @dataclass(frozen=True)
@@ -76,11 +78,13 @@ TYPES: tuple[NoteType, ...] = (
                 "Status",
                 "select",
                 "Одно из: Todo, In Progress, Done. По умолчанию Todo.",
+                select_options=("Todo", "In Progress", "Done"),
             ),
             NotionProperty(
                 "Priority",
                 "select",
                 "Одно из: Low, Medium, High. Если не ясно — Medium.",
+                select_options=("Low", "Medium", "High"),
             ),
             NotionProperty(
                 "DueDate",

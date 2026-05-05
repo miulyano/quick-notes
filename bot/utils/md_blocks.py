@@ -1,17 +1,25 @@
-"""Markdown → Notion blocks. Just enough for MVP note formatting.
+"""Markdown → blocks (Notion + Buildin shapes).
 
-Supports: headings (#, ##, ###), bullet lists (-, *), numbered lists (1.),
-quotes (>), code fences (```), paragraphs. Inline markdown (bold/italic/links)
-is NOT parsed — content is shipped as plain rich_text. Keep this file dumb on
-purpose; if we need rich inline rendering later, swap in a real markdown lib.
+Парсер dumb по дизайну: heading (#/##/###), bullet/numbered lists, quote,
+code fences, paragraph. Inline markdown (bold/italic/links) НЕ парсится — текст
+едет как plain rich_text. Если потребуется — менять отдельным PR с реальной
+md-библиотекой.
+
+Internal pipeline:
+  raw markdown → parse_markdown() → list[ParsedBlock]  ── общий парсер
+                                          │
+                                          ├─ markdown_to_blocks() → Notion shape
+                                          └─ markdown_to_blocks_buildin() → Buildin shape
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
+from typing import Any
 
-# Notion's hard limit on rich_text element content. Long paragraphs are split
-# into multiple rich_text elements inside the same block.
+# Лимит длины content в одном rich_text элементе. У Notion явный hard cap 2000;
+# Buildin лимит в openapi не указан — оставляем то же, безопасно.
 MAX_RICH_TEXT_LEN = 2000
 
 _HEADING_RE = re.compile(r"^(#{1,3})\s+(.+)$")
@@ -21,26 +29,21 @@ _QUOTE_RE = re.compile(r"^>\s+(.+)$")
 _CODE_FENCE_RE = re.compile(r"^```(\w*)$")
 
 
-def _rich_text(content: str) -> list[dict]:
-    """Split content into Notion-compliant rich_text chunks."""
-    if not content:
-        return [{"type": "text", "text": {"content": ""}}]
-    return [
-        {"type": "text", "text": {"content": content[i : i + MAX_RICH_TEXT_LEN]}}
-        for i in range(0, len(content), MAX_RICH_TEXT_LEN)
-    ]
+@dataclass
+class ParsedBlock:
+    type: str                                # paragraph | heading_1 | … | code | quote
+    content: str                             # текстовое тело
+    extra: dict[str, Any] = field(default_factory=dict)  # language, …
 
 
-def _block(block_type: str, content: str, **extra: dict) -> dict:
-    payload = {"rich_text": _rich_text(content)}
-    payload.update(extra)
-    return {"object": "block", "type": block_type, block_type: payload}
+def parse_markdown(text: str) -> list[ParsedBlock]:
+    """Provider-neutral markdown parser. Возвращает список ParsedBlock.
 
-
-def markdown_to_blocks(text: str) -> list[dict]:
-    """Convert markdown into a list of Notion block payloads."""
+    Не делает предположений о shape целевого блока (Notion/Buildin) — это
+    задача обёрток ниже.
+    """
     lines = text.split("\n")
-    blocks: list[dict] = []
+    blocks: list[ParsedBlock] = []
     paragraph: list[str] = []
 
     def flush_paragraph() -> None:
@@ -48,7 +51,7 @@ def markdown_to_blocks(text: str) -> list[dict]:
             return
         joined = "\n".join(paragraph).strip()
         if joined:
-            blocks.append(_block("paragraph", joined))
+            blocks.append(ParsedBlock("paragraph", joined))
         paragraph.clear()
 
     i = 0
@@ -56,7 +59,6 @@ def markdown_to_blocks(text: str) -> list[dict]:
         line = lines[i]
         stripped = line.strip()
 
-        # Code fence (multi-line).
         fence = _CODE_FENCE_RE.match(stripped)
         if fence:
             flush_paragraph()
@@ -66,47 +68,42 @@ def markdown_to_blocks(text: str) -> list[dict]:
             while i < len(lines) and not _CODE_FENCE_RE.match(lines[i].strip()):
                 code_lines.append(lines[i])
                 i += 1
-            blocks.append(_block("code", "\n".join(code_lines), language=language))
+            blocks.append(ParsedBlock("code", "\n".join(code_lines), {"language": language}))
             i += 1  # skip closing fence
             continue
 
-        # Blank line — paragraph boundary.
         if not stripped:
             flush_paragraph()
             i += 1
             continue
 
-        # Heading.
         h = _HEADING_RE.match(stripped)
         if h:
             flush_paragraph()
             level = len(h.group(1))
             block_type = {1: "heading_1", 2: "heading_2", 3: "heading_3"}[level]
-            blocks.append(_block(block_type, h.group(2)))
+            blocks.append(ParsedBlock(block_type, h.group(2)))
             i += 1
             continue
 
-        # Bulleted list item.
         bullet = _BULLET_RE.match(stripped)
         if bullet:
             flush_paragraph()
-            blocks.append(_block("bulleted_list_item", bullet.group(1)))
+            blocks.append(ParsedBlock("bulleted_list_item", bullet.group(1)))
             i += 1
             continue
 
-        # Numbered list item.
         numbered = _NUMBERED_RE.match(stripped)
         if numbered:
             flush_paragraph()
-            blocks.append(_block("numbered_list_item", numbered.group(1)))
+            blocks.append(ParsedBlock("numbered_list_item", numbered.group(1)))
             i += 1
             continue
 
-        # Quote.
         quote = _QUOTE_RE.match(stripped)
         if quote:
             flush_paragraph()
-            blocks.append(_block("quote", quote.group(1)))
+            blocks.append(ParsedBlock("quote", quote.group(1)))
             i += 1
             continue
 
@@ -115,3 +112,35 @@ def markdown_to_blocks(text: str) -> list[dict]:
 
     flush_paragraph()
     return blocks
+
+
+def _rich_text(content: str) -> list[dict]:
+    """Сплит длинного content на чанки по MAX_RICH_TEXT_LEN."""
+    if not content:
+        return [{"type": "text", "text": {"content": ""}}]
+    return [
+        {"type": "text", "text": {"content": content[i : i + MAX_RICH_TEXT_LEN]}}
+        for i in range(0, len(content), MAX_RICH_TEXT_LEN)
+    ]
+
+
+def markdown_to_blocks(text: str) -> list[dict]:
+    """Notion shape: `{object: block, type: <t>, <t>: {rich_text: [...], **extra}}`."""
+    out: list[dict] = []
+    for pb in parse_markdown(text):
+        payload = {"rich_text": _rich_text(pb.content), **pb.extra}
+        out.append({"object": "block", "type": pb.type, pb.type: payload})
+    return out
+
+
+def markdown_to_blocks_buildin(text: str) -> list[dict]:
+    """Buildin shape: `{type: <t>, data: {rich_text: [...], **extra}}`.
+
+    Отличие от Notion: контент блока всегда живёт под ключом `data`, а не под
+    именем типа. Это формат `BlockData` в openapi (см. план).
+    """
+    out: list[dict] = []
+    for pb in parse_markdown(text):
+        data = {"rich_text": _rich_text(pb.content), **pb.extra}
+        out.append({"type": pb.type, "data": data})
+    return out

@@ -3,5 +3,6 @@ pydantic-settings>=2.0
 python-dotenv>=1.0
 aiosqlite>=0.19
 notion-client>=2.2
+httpx>=0.27
 openai>=1.50
 assemblyai>=0.35
