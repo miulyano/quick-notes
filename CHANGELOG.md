@@ -4,6 +4,26 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.3.0] – 2026-05-05
+
+### Added
+- Реальная интеграция с Notion: `services/notion_client.py` теперь делает
+  `pages.create` через `notion-client` SDK когда заданы `NOTION_TOKEN` +
+  `NOTION_DATABASE_ID`. Без них — fallback в stub-режим (логирует payload).
+- `bot/utils/md_blocks.py`: конвертер markdown → Notion blocks
+  (paragraphs, headings 1-3, bullet/numbered lists, quote, code fences).
+  Длинные абзацы автоматически разбиваются по `MAX_RICH_TEXT_LEN=2000`.
+- Notion-database schema documented в `.env.example` и README:
+  required properties `Name` (title), `Type` (select), `CreatedAt` (date).
+- `set_client()` test hook в `notion_client.py` для подмены SDK в тестах.
+- 15 новых тестов (md_blocks + notion_client real/stub/failure-injector),
+  всего 54 — все зелёные.
+
+### Changed
+- `requirements.txt`: добавлен `notion-client>=2.2`.
+- `bot/config.py`: `NOTION_TOKEN`, `NOTION_DATABASE_ID` (Optional) +
+  свойство `notion_enabled`.
+
 ## [0.2.0] – 2026-05-05
 
 ### Added
