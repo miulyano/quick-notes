@@ -1,44 +1,97 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.6.0-blue)
+![version](https://img.shields.io/badge/version-0.7.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, форварды;
 транскрибирует медиа, классифицирует через GPT-4o, сохраняет готовые страницы в
-[Notion](https://www.notion.so/).
+[Buildin](https://buildin.ai) (по умолчанию) или [Notion](https://www.notion.so/) —
+переключатель `NOTES_PROVIDER=buildin|notion`.
 
 > Архитектурный план — `~/.claude/plans/notes-bot-giggly-lemur.md`. Эволюция —
 > отдельные ветки и Conventional-Commits-PR в `main` (см. `AGENTS.md`).
 
-## Что умеет (на 0.6.0)
+## Что умеет (на 0.7.0)
 
-- Принимает **текст, голосовые, аудио, видео, видео-кружочки, форварды**
-  (любой из перечисленных типов).
+- Принимает **текст, голосовые, аудио, видео, видео-кружочки, форварды**.
 - Голос/аудио/видео транскрибируется через **AssemblyAI Universal-2** с
   диаризацией спикеров. Сырой транскрипт остаётся в БД (промежуточный шаг),
-  в Notion идёт только готовая заметка после LLM. Без `ASSEMBLYAI_API_KEY` —
-  голосовые отключены, бот отвечает «транскрибация выключена».
+  в провайдер уходит только готовая заметка после LLM. Без
+  `ASSEMBLYAI_API_KEY` — голосовые отключены, бот отвечает «транскрибация
+  выключена».
 - Для форвардов извлекаются метаданные (автор, канал, дата, подпись,
   оригинальный message_id) и подаются в LLM как контекст-prefix
   `[Forwarded] От: …; Когда: …`. Draft помечается `kind=forward`.
 - Создаёт черновик в SQLite **до** любой обработки (durability-контракт).
 - **Один GPT-4o-вызов**: классифицирует тип (note / task / idea / meeting /
-  1on1 / work / personal), извлекает properties (Status, Priority, DueDate,
-  Tags, Attendees, …) и форматирует тело как markdown под template типа.
-  Без `OPENAI_API_KEY` — stub-fallback (тип `note`, тело = исходник).
-- Показывает превью с тремя кнопками: `💾 Save` / `🔁 Type` (поменять тип
-  через клавиатуру со всеми категориями) / `✖️ Cancel`.
-- На Save — кладёт в outbox-очередь, фоновой воркер вызывает Notion API.
-- Per-type Notion DB routing: каждый тип попадает в свою базу по
-  `NOTION_DB_<TYPE>`. Если переменная не задана — fallback на
-  `NOTION_DATABASE_ID`. Без `NOTION_TOKEN` — stub-режим.
-- Markdown тела заметки конвертируется в Notion blocks (параграфы,
+  1on1 / work / personal), **выбирает workspace** (personal / work / family /
+  growth / ai_path), извлекает properties (Status, Priority, DueDate, Tags,
+  Attendees, …) и форматирует тело как markdown под template типа. Без
+  `OPENAI_API_KEY` — stub-fallback (тип `note`, workspace `personal`,
+  тело = исходник).
+- Превью с кнопками: `💾 Save` / `✖ Cancel` сверху, `🔁 Type` /
+  `📁 Workspace` снизу. Workspace и тип можно переопределить вручную.
+- На Save — кладёт в outbox-очередь, фоновой воркер вызывает API провайдера
+  (Buildin или Notion в зависимости от `NOTES_PROVIDER`).
+- **Routing**: per-(workspace × type) для Buildin (`BUILDIN_DB_<WS>_<TYPE>`)
+  с фолбэком на per-type / default; per-type для Notion (`NOTION_DB_<TYPE>`)
+  с фолбэком на `NOTION_DATABASE_ID`. Без токена провайдера — stub-режим.
+- Markdown тела заметки конвертируется в provider-specific blocks (параграфы,
   заголовки `#`/`##`/`###`, списки `-`/`1.`, цитаты `>`, code-fences ` ``` `).
+  Для Buildin длинные заметки (>100 блоков) дописываются чанками по 100
+  через `PATCH /v1/blocks/{page_id}/children`.
 - На успех — атомарно `idempotency.insert + drafts.delete + outbox.delete`.
-  Превью редактируется в «✅ Сохранено в Notion».
+  Превью редактируется в «✅ Сохранено в Buildin/Notion».
 - На ошибку — экспоненциальный backoff. После `MAX_ATTEMPTS` черновик
   помечается `failed`, остаётся видимым через `/list`.
+- При `NOTES_PROVIDER=buildin` бот на старте делает health-check
+  (`GET /v1/users/me`) и предупреждает о незаданных
+  `BUILDIN_SPACE_<WS>` env'ах.
 - Команды: `/start`, `/help`, `/list`, `/retry`.
 - На старте: восстановление черновиков, застрявших в `saving` дольше 5 минут.
+
+## Подключение Buildin (default)
+
+### 1. Integration
+
+В Buildin: settings → integrations → создать новую integration. Скопировать
+токен → `BUILDIN_TOKEN` в `.env`.
+
+### 2. Spaces (workspace'ы)
+
+Бот поддерживает 5 workspace'ов: `personal`, `work`, `family`, `growth`,
+`ai_path`. Для каждого нужен отдельный Buildin space. Создайте space'ы
+руками, разрешите для них integration, скопируйте UUID:
+
+| Workspace | Env var |
+|---|---|
+| `personal` (Личное) | `BUILDIN_SPACE_PERSONAL` |
+| `work` (Работа) | `BUILDIN_SPACE_WORK` |
+| `family` (Семья) | `BUILDIN_SPACE_FAMILY` |
+| `growth` (Куда расти?) | `BUILDIN_SPACE_GROWTH` |
+| `ai_path` (Путь ИИ) | `BUILDIN_SPACE_AI_PATH` |
+
+### 3. Базы (databases)
+
+Внутри каждого space — отдельная DB на каждый тип заметки. Можно создать
+руками (тогда скопируйте UUID из URL в `BUILDIN_DB_<WS>_<TYPE>`), либо
+запустить автосоздание:
+
+```bash
+source .venv/bin/activate
+python -m scripts.setup_buildin_dbs >> .env
+```
+
+Скрипт уважает уже заданные env'ы — заполняет только пустые slot'ы.
+Доп. флаги: `--dry-run` (без сетевых вызовов), `--workspace=<key>`,
+`--type=<key>` (только конкретный workspace или тип).
+
+Кроме перечисленных свойств бот всегда дописывает `CreatedAt` (date) — оно
+создаётся скриптом автоматически.
+
+### 4. Переключатель провайдера
+
+`NOTES_PROVIDER=buildin` (default) включает Buildin sink. Для возврата на
+Notion поставьте `NOTES_PROVIDER=notion`.
 
 ## Подключение Notion
 
@@ -89,7 +142,8 @@ Telegram-бот для персональных заметок: принимае
 - aiogram 3.x — Telegram bot framework
 - pydantic-settings — config через `.env`
 - aiosqlite — async-драйвер SQLite
-- notion-client — Python SDK Notion API
+- httpx — async HTTP-клиент для Buildin API (тонкий клиент по openapi)
+- notion-client — Python SDK Notion API (legacy fallback провайдер)
 - openai — GPT-4o classify+format одним вызовом
 - assemblyai — Universal-2 транскрибация + диаризация
 - pytest + pytest-asyncio — тесты
@@ -110,10 +164,16 @@ bot/
 │   └── auth.py            # whitelist Telegram user IDs
 ├── services/
 │   ├── llm_processor.py   # GPT-4o classify+format (один вызов) + stub fallback
-│   ├── notion_client.py   # реальный pages.create через notion-client + per-type DB routing
-│   └── transcriber.py     # AssemblyAI Universal-2 + диаризация (multi-speaker labels)
+│   ├── notion_client.py   # compat-shim → sinks/notion.py
+│   ├── transcriber.py     # AssemblyAI Universal-2 + диаризация (multi-speaker labels)
+│   └── sinks/             # провайдеры хранилища заметок
+│       ├── __init__.py    # Sink Protocol
+│       ├── notion.py      # NotionSink — pages.create через notion-client
+│       ├── buildin.py     # BuildinSink — httpx + Buildin API (default)
+│       └── factory.py     # get_sink() по NOTES_PROVIDER
 ├── domain/
-│   ├── note_types.py      # 7 типов с properties + db_env + LLM-hints
+│   ├── note_types.py      # 7 типов с properties + db_env + LLM-hints + select_options
+│   ├── workspaces.py      # реестр workspaces (personal/work/family/growth/ai_path)
 │   └── templates.py       # per-type markdown шаблоны
 ├── storage/
 │   ├── db.py              # aiosqlite-соединение, WAL, миграции
@@ -127,9 +187,11 @@ bot/
 └── utils/
     ├── progress.py        # ProgressReporter
     ├── text_chunking.py
-    ├── md_blocks.py       # markdown → Notion blocks
+    ├── md_blocks.py       # parse_markdown + markdown_to_blocks (Notion) + markdown_to_blocks_buildin
     ├── forward.py         # извлечение метаданных forward + prefix для LLM
     └── errors.py
+scripts/
+└── setup_buildin_dbs.py   # авто-создание Buildin DB по реестрам
 tests/                     # pytest + pytest-asyncio, in-memory SQLite фикстура
 data/                      # SQLite БД (volume в compose)
 ```
@@ -163,20 +225,27 @@ source .venv/bin/activate
 pytest -v
 ```
 
-97 тестов на момент 0.6.0:
+129+ тестов на момент 0.7.0:
 - `test_config.py`, `test_auth.py` — конфиг и middleware.
 - `test_drafts.py`, `test_outbox.py`, `test_idempotency.py`, `test_save_tx.py` —
   storage-слой (in-memory SQLite через фикстуру `fresh_db`).
 - `test_outbox_worker.py` — happy path, retry, idempotency после крэша,
   max_attempts.
-- `test_note_types.py`, `test_templates.py` — реестр типов и шаблоны.
+- `test_note_types.py`, `test_templates.py`, `test_workspaces.py` — реестры.
 - `test_llm_processor.py` — stub + real path с моком OpenAI (включая
-  fallback на ошибке и неизвестный тип).
+  workspace classification + fallback на ошибке и неизвестный тип/workspace).
 - `test_handlers_inputs.py`, `test_handlers_callbacks.py` — UX-логика
-  включая выбор типа.
-- `test_md_blocks.py` — конвертер markdown → Notion blocks.
-- `test_notion_client.py` — stub/real mode, per-type DB routing,
+  (выбор типа + workspace).
+- `test_md_blocks.py`, `test_md_blocks_buildin.py` — markdown → blocks для
+  Notion и Buildin shapes.
+- `test_notion_client.py` — Notion sink: stub/real mode, per-type DB routing,
   multi_select, fallback title, failure-injector.
+- `test_buildin_sink.py` — Buildin sink (httpx MockTransport): wire shape,
+  workspace × type routing, chunking длинных заметок, error mapping,
+  health-check `/v1/users/me`.
+- `test_workspace_routing.py` — `settings.database_id_for()` для обоих
+  провайдеров.
+- `test_sink_factory.py` — `get_sink()` переключение по `NOTES_PROVIDER`.
 - `test_transcriber.py` — диаризация render-with-speakers, disabled-flag.
 - `test_handlers_voice.py` — happy path с моками download/transcribe/LLM,
   durability при ошибках.
@@ -190,6 +259,12 @@ pytest -v
 | `BOT_TOKEN` | Токен Telegram-бота от `@BotFather` |
 | `ALLOWED_USER_IDS` | Разрешённые TG user IDs через запятую |
 | `DATABASE_PATH` | Путь к файлу SQLite (по умолчанию `data/notes.db`) |
+| `NOTES_PROVIDER` | `buildin` (default) или `notion` |
+| `BUILDIN_TOKEN` | Токен Buildin integration. Пусто → stub-режим |
+| `BUILDIN_SPACE_<WS>` | UUID space'а workspace'а (`PERSONAL`, `WORK`, `FAMILY`, `GROWTH`, `AI_PATH`). Нужны для setup-script |
+| `BUILDIN_DB_<WS>_<TYPE>` | Per-(workspace × type) DB id. Заполняется setup-script'ом или руками |
+| `BUILDIN_DB_<TYPE>` | Per-type fallback DB id (без workspace-разреза) |
+| `BUILDIN_DB_DEFAULT` | Финальный fallback DB id |
 | `NOTION_TOKEN` | Токен Internal Integration Notion. Пусто → stub-режим |
 | `NOTION_DATABASE_ID` | Default DB id (fallback для типов без своей переменной) |
 | `NOTION_DB_<TYPE>` | Per-type DB id: `NOTE`, `TASK`, `IDEA`, `MEETING`, `1ON1`, `WORK`, `PERSONAL`. Все optional |

@@ -8,6 +8,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.domain.note_types import TYPES
+from bot.domain.workspaces import WORKSPACES
 from bot.handlers.inputs import format_preview, preview_keyboard
 from bot.storage import drafts, outbox
 
@@ -20,6 +21,17 @@ def _types_keyboard(draft_id: str) -> InlineKeyboardMarkup:
     buttons = [
         InlineKeyboardButton(text=t.label, callback_data=f"settype:{draft_id}:{t.key}")
         for t in TYPES
+    ]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back:{draft_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _workspaces_keyboard(draft_id: str) -> InlineKeyboardMarkup:
+    """Per-workspace chooser. 2 columns × N rows + back row."""
+    buttons = [
+        InlineKeyboardButton(text=w.label, callback_data=f"setws:{draft_id}:{w.key}")
+        for w in WORKSPACES
     ]
     rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back:{draft_id}")])
@@ -81,12 +93,53 @@ async def on_set_type(cb: CallbackQuery) -> None:
     if cb.message is not None:
         try:
             await cb.message.edit_text(
-                format_preview(draft.title or "", draft.formatted or "", type_key),
+                format_preview(
+                    draft.title or "", draft.formatted or "", type_key, draft.workspace
+                ),
                 reply_markup=preview_keyboard(draft_id),
             )
         except Exception:
             pass
     await cb.answer(f"Тип: {type_key}")
+
+
+@router.callback_query(F.data.startswith("chws:"))
+async def on_change_workspace(cb: CallbackQuery) -> None:
+    draft_id = cb.data.split(":", 1)[1]
+    draft = await drafts.get(draft_id)
+    if draft is None:
+        await cb.answer("Черновик не найден", show_alert=True)
+        return
+    if cb.message is not None:
+        try:
+            await cb.message.edit_reply_markup(reply_markup=_workspaces_keyboard(draft_id))
+        except Exception:
+            pass
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("setws:"))
+async def on_set_workspace(cb: CallbackQuery) -> None:
+    _, draft_id, ws_key = cb.data.split(":", 2)
+    draft = await drafts.get(draft_id)
+    if draft is None:
+        await cb.answer("Черновик не найден", show_alert=True)
+        return
+    await drafts.update(draft_id, workspace=ws_key)
+    if cb.message is not None:
+        try:
+            await cb.message.edit_text(
+                format_preview(
+                    draft.title or "",
+                    draft.formatted or "",
+                    draft.note_type or "note",
+                    ws_key,
+                ),
+                reply_markup=preview_keyboard(draft_id),
+            )
+        except Exception:
+            pass
+    await cb.answer(f"Workspace: {ws_key}")
 
 
 @router.callback_query(F.data.startswith("back:"))

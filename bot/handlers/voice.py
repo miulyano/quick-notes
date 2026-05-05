@@ -132,10 +132,13 @@ async def handle_media(message: Message, bot: Bot) -> None:
             title=processed.title,
             formatted=processed.formatted,
             properties=json.dumps(processed.properties, ensure_ascii=False),
+            workspace=processed.workspace,
         )
         await progress.finish()
 
-    preview = format_preview(processed.title, processed.formatted, processed.note_type)
+    preview = format_preview(
+        processed.title, processed.formatted, processed.note_type, processed.workspace
+    )
     sent = await message.answer(preview, reply_markup=preview_keyboard(draft_id))
     await drafts.update(draft_id, preview_msg_id=sent.message_id)
 

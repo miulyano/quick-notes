@@ -14,6 +14,11 @@ from typing import Any, Optional
 
 from bot.config import settings
 from bot.domain.note_types import DEFAULT_TYPE, TYPES, all_keys
+from bot.domain.workspaces import (
+    DEFAULT_WORKSPACE,
+    WORKSPACES,
+    all_keys as all_workspace_keys,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +28,7 @@ class ProcessedNote:
     note_type: str
     title: str
     formatted: str                 # Markdown body (already template-rendered).
+    workspace: str = DEFAULT_WORKSPACE
     properties: dict[str, Any] = field(default_factory=dict)
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -60,19 +66,27 @@ def _build_system_prompt() -> str:
         )
     types_section = "\n\n".join(type_blocks)
 
+    workspace_lines = "\n".join(
+        f"- `{w.key}` ({w.label}) — {w.description}" for w in WORKSPACES
+    )
+
     return (
         "Ты помогаешь пользователю превращать сырые заметки (текст, транскрипт "
-        "голосового, форвард) в структурированную страницу для Notion.\n\n"
+        "голосового, форвард) в структурированную страницу.\n\n"
         "Сделай за один проход:\n"
         "1. КЛАССИФИЦИРУЙ запись по одному из типов ниже.\n"
-        "2. ИЗВЛЕКИ properties под выбранный тип.\n"
-        "3. ОТФОРМАТИРУЙ тело заметки как чистый markdown (заголовки `##`, "
+        "2. ВЫБЕРИ workspace, в который сохранять (см. список ниже).\n"
+        "3. ИЗВЛЕКИ properties под выбранный тип.\n"
+        "4. ОТФОРМАТИРУЙ тело заметки как чистый markdown (заголовки `##`, "
         "списки `-`, цитаты `>` где уместно). Не добавляй мета-информацию "
         "вроде «вот ваша заметка». Не цитируй prompt.\n\n"
         f"Типы:\n\n{types_section}\n\n"
+        f"Workspaces:\n{workspace_lines}\n\n"
+        f"Если не уверен в workspace — выбирай `{DEFAULT_WORKSPACE}`.\n\n"
         "Верни СТРОГО JSON со схемой:\n"
         "{\n"
-        '  "type": "<один из ключей>",\n'
+        '  "type": "<один из ключей типов>",\n'
+        '  "workspace": "<один из ключей workspaces>",\n'
         '  "title": "<строка ≤80 символов>",\n'
         '  "properties": { "<имя property>": <value>, ... },\n'
         '  "extras": {\n'
@@ -115,6 +129,15 @@ async def _process_real(raw_text: str) -> ProcessedNote:
         logger.warning("LLM returned unknown type=%r, falling back to %s", note_type, DEFAULT_TYPE)
         note_type = DEFAULT_TYPE
 
+    workspace = payload.get("workspace") or DEFAULT_WORKSPACE
+    if workspace not in all_workspace_keys():
+        logger.warning(
+            "LLM returned unknown workspace=%r, falling back to %s",
+            workspace,
+            DEFAULT_WORKSPACE,
+        )
+        workspace = DEFAULT_WORKSPACE
+
     title = (payload.get("title") or "Без названия").strip()[:80]
     properties = payload.get("properties") or {}
     extras = payload.get("extras") or {}
@@ -130,6 +153,7 @@ async def _process_real(raw_text: str) -> ProcessedNote:
         note_type=note_type,
         title=title,
         formatted=formatted,
+        workspace=workspace,
         properties=properties if isinstance(properties, dict) else {},
         extras=extras if isinstance(extras, dict) else {},
     )
@@ -143,6 +167,7 @@ async def _process_stub(raw_text: str) -> ProcessedNote:
         note_type=DEFAULT_TYPE,
         title=title,
         formatted=text,
+        workspace=DEFAULT_WORKSPACE,
     )
 
 

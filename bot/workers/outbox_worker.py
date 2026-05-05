@@ -19,7 +19,7 @@ import asyncio
 import logging
 from typing import Awaitable, Callable, Optional
 
-from bot.services import notion_client
+from bot.services.sinks.factory import get_sink
 from bot.storage import drafts, idempotency, outbox, save_tx
 from bot.storage.drafts import Draft
 
@@ -54,7 +54,7 @@ async def process_one(
         return
 
     try:
-        page_id = await notion_client.create_page(draft)
+        page_id = await get_sink().create_page(draft)
     except Exception as exc:
         attempts = await outbox.mark_failed(draft_id, str(exc))
         logger.warning("outbox save failed draft=%s attempt=%d err=%s", draft_id, attempts, exc)

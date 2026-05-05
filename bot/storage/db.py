@@ -29,7 +29,8 @@ _MIGRATIONS = [
         properties      TEXT,
         error           TEXT,
         created_at      INTEGER NOT NULL,
-        updated_at      INTEGER NOT NULL
+        updated_at      INTEGER NOT NULL,
+        workspace       TEXT NOT NULL DEFAULT 'personal'
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status)",
@@ -75,6 +76,16 @@ async def init_db(path: str) -> aiosqlite.Connection:
 
     for stmt in _MIGRATIONS:
         await conn.execute(stmt)
+
+    # Lightweight ALTER для существующих БД, у которых ещё нет колонки workspace.
+    # IF NOT EXISTS для ADD COLUMN не поддерживается старыми SQLite — try/except.
+    try:
+        await conn.execute(
+            "ALTER TABLE drafts ADD COLUMN workspace TEXT NOT NULL DEFAULT 'personal'"
+        )
+    except Exception:
+        pass
+
     await conn.commit()
 
     _conn = conn

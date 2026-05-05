@@ -8,8 +8,10 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from bot.config import settings
+from bot.domain.workspaces import WORKSPACES
 from bot.handlers import callbacks, commands, inputs, voice
 from bot.middlewares.auth import AuthMiddleware
+from bot.services.sinks import buildin as buildin_sink
 from bot.storage import db, drafts
 from bot.storage.drafts import Draft
 from bot.workers import outbox_worker
@@ -18,6 +20,35 @@ from bot.workers import outbox_worker
 logger = logging.getLogger(__name__)
 
 STUCK_SAVING_THRESHOLD_SECS = 300  # 5 minutes
+
+
+async def _buildin_health_check() -> None:
+    """Validate Buildin token + проверить, что заданы space_id для каждого workspace.
+
+    Fail-fast при неправильной настройке: бот не должен стартовать со сломанным
+    sink, иначе все save'ы пойдут в backoff и user не увидит причину.
+    """
+    if settings.NOTES_PROVIDER != "buildin":
+        return
+    if not settings.buildin_enabled:
+        logger.warning(
+            "NOTES_PROVIDER=buildin, но BUILDIN_TOKEN пуст — sink работает в stub-режиме"
+        )
+        return
+    try:
+        me = await buildin_sink.users_me()
+    except Exception as exc:
+        raise RuntimeError(f"Buildin health-check failed (GET /v1/users/me): {exc}") from exc
+    bot_name = me.get("name") or me.get("id") or "<unknown>"
+    logger.info("Buildin auth OK — bot=%s", bot_name)
+
+    missing = [w.space_env for w in WORKSPACES if not settings.buildin_space_id(w.key)]
+    if missing:
+        logger.warning(
+            "Не заданы env-переменные spaces: %s — соответствующие workspace'ы "
+            "будут писать через fallback DB, а setup_buildin_dbs не сможет создать DBs",
+            ", ".join(missing),
+        )
 
 
 async def _recover_stuck_drafts() -> None:
@@ -36,11 +67,12 @@ def _make_save_callbacks(bot: Bot):
     async def on_saved(draft: Draft, page_id: str) -> None:
         if draft.preview_msg_id is None:
             return
+        provider_label = "Buildin" if settings.NOTES_PROVIDER == "buildin" else "Notion"
         with suppress(Exception):
             await bot.edit_message_text(
                 chat_id=draft.chat_id,
                 message_id=draft.preview_msg_id,
-                text=f"✅ Сохранено в Notion\n<code>{page_id}</code>",
+                text=f"✅ Сохранено в {provider_label}\n<code>{page_id}</code>",
             )
 
     async def on_failed(draft: Draft, error: str) -> None:
@@ -67,6 +99,7 @@ async def main() -> None:
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     os.makedirs(settings.TEMP_DIR, exist_ok=True)
     await db.init_db(db_path)
+    await _buildin_health_check()
     await _recover_stuck_drafts()
 
     bot = Bot(

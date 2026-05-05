@@ -4,6 +4,59 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.7.0] – 2026-05-05
+
+### Added
+- Поддержка **Buildin** (https://buildin.ai) как нового sink-провайдера
+  заметок (default). Переключатель `NOTES_PROVIDER=buildin|notion` (default
+  `buildin`). Старый Notion sink остаётся как fallback, переключается env'ом.
+- `bot/services/sinks/` — новый каталог с sink-абстракцией: `Sink` Protocol
+  (`__init__.py`), `notion.py` (перенесённый старый клиент, обёрнут в класс
+  `NotionSink`), `buildin.py` (новый `BuildinSink` на `httpx`), `factory.py`
+  (`get_sink()` по `NOTES_PROVIDER`).
+- `bot/domain/workspaces.py` — реестр workspace'ов: `personal` (Личное),
+  `work` (Работа), `family` (Семья), `growth` (Куда расти?), `ai_path`
+  (Путь ИИ). Default = `personal`.
+- LLM classifier (`llm_processor.py`) теперь возвращает поле `workspace`
+  (один из ключей реестра); в prompt — секция «Workspaces» с label +
+  description каждого. Stub-фолбэк → `personal`.
+- UX: новая кнопка `📁 Workspace` в превью + `chws/setws` callbacks.
+  Layout превью: верхний ряд `💾 Save | ✖ Cancel`, нижний `🔁 Type | 📁 Workspace`.
+  В превью текст показывается с двумя метками: `<тип> · 📁 <workspace>`.
+- Buildin sink:
+  - bearer auth, base URL `https://api.buildin.ai`;
+  - wire-формат: `parent` с `type`-дискриминатором, properties `{type, …}`,
+    blocks под ключом `data` (см. `bot/utils/md_blocks.py:markdown_to_blocks_buildin`);
+  - **chunking длинных страниц**: после `POST /v1/pages` оставшиеся блоки
+    добавляются через `PATCH /v1/blocks/{page_id}/children` чанками по 100;
+  - stub-mode при пустом `BUILDIN_TOKEN`.
+- Per-(workspace × type) DB routing: `BUILDIN_DB_<WS>_<TYPE>` → fallback
+  `BUILDIN_DB_<TYPE>` → `BUILDIN_DB_DEFAULT`. Резолвинг — `settings.database_id_for()`.
+- Health-check на старте бота при `NOTES_PROVIDER=buildin`:
+  `GET /v1/users/me` (валидация токена) + warn при незаданных
+  `BUILDIN_SPACE_<WS>` env'ах.
+- `scripts/setup_buildin_dbs.py` — создание недостающих Buildin DB через
+  `POST /v1/databases`. Уже привязанные slot'ы (env `BUILDIN_DB_<WS>_<TYPE>`
+  задан) не пересоздаются. Поддерживает `--dry-run`, `--workspace`, `--type`.
+- `NotionProperty.select_options` — фиксированные опции для select-полей
+  (Status: Todo/In Progress/Done; Priority: Low/Medium/High). Используются
+  при автосоздании Buildin DB для `PropertySchemaSelect.options`.
+- Колонка `workspace` в таблице `drafts` (default `personal`) +
+  lightweight миграция `ALTER TABLE drafts ADD COLUMN workspace`.
+- `httpx>=0.27` в `requirements.txt` (раньше шёл транзитивно через
+  `notion-client`).
+
+### Changed
+- `bot/services/notion_client.py` — теперь тонкий compat-shim, ре-экспортирует
+  `bot/services/sinks/notion.py`. Старые импорт-пути работают без изменений.
+- `bot/utils/md_blocks.py` — общий парсер `parse_markdown(text)` →
+  `list[ParsedBlock]`, поверх него обёртки `markdown_to_blocks` (Notion) и
+  `markdown_to_blocks_buildin` (Buildin).
+- `bot/workers/outbox_worker.py` — использует `get_sink()` вместо прямого
+  импорта `notion_client.create_page`.
+- В сообщении «✅ Сохранено» — название провайдера выводится по
+  `settings.NOTES_PROVIDER`.
+
 ## [0.6.0] – 2026-05-05
 
 ### Added

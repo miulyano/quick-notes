@@ -31,6 +31,7 @@ async def test_stub_uses_first_line_as_title(monkeypatch):
     assert p.note_type == "note"
     assert p.title == "Title line"
     assert p.formatted == "Title line\nbody body"
+    assert p.workspace == "personal"  # DEFAULT_WORKSPACE
 
 
 async def test_stub_truncates_long_title(monkeypatch):
@@ -77,6 +78,46 @@ async def test_real_path_classifies_task(monkeypatch):
     # Template renders checklist after body.
     assert "## Чек-лист" in p.formatted
     assert "- [ ] edit VERSION" in p.formatted
+
+
+async def test_real_path_classifies_workspace(monkeypatch):
+    monkeypatch.setattr("bot.services.llm_processor.settings.OPENAI_API_KEY", "secret")
+
+    fake = MagicMock()
+    fake.chat = MagicMock()
+    fake.chat.completions = MagicMock()
+    fake.chat.completions.create = AsyncMock(
+        return_value=_fake_completion(
+            {
+                "type": "note",
+                "workspace": "ai_path",
+                "title": "Идея для ИИ",
+                "properties": {},
+                "markdown_body": "тело",
+            }
+        )
+    )
+    llm_processor.set_client(fake)
+
+    p = await llm_processor.process("эксперимент с GPT")
+    assert p.workspace == "ai_path"
+
+
+async def test_real_path_unknown_workspace_falls_back(monkeypatch):
+    monkeypatch.setattr("bot.services.llm_processor.settings.OPENAI_API_KEY", "secret")
+
+    fake = MagicMock()
+    fake.chat = MagicMock()
+    fake.chat.completions = MagicMock()
+    fake.chat.completions.create = AsyncMock(
+        return_value=_fake_completion(
+            {"type": "note", "workspace": "narnia", "title": "x", "markdown_body": "y"}
+        )
+    )
+    llm_processor.set_client(fake)
+
+    p = await llm_processor.process("test")
+    assert p.workspace == "personal"
 
 
 async def test_real_path_unknown_type_falls_back(monkeypatch):

@@ -1,6 +1,14 @@
 from unittest.mock import AsyncMock, MagicMock
 
-from bot.handlers.callbacks import on_back, on_cancel, on_change_type, on_save, on_set_type
+from bot.handlers.callbacks import (
+    on_back,
+    on_cancel,
+    on_change_type,
+    on_change_workspace,
+    on_save,
+    on_set_type,
+    on_set_workspace,
+)
 from bot.storage import drafts, outbox
 
 
@@ -88,3 +96,27 @@ async def test_back_restores_main_keyboard(fresh_db):
     await on_back(cb)
 
     cb.message.edit_reply_markup.assert_awaited()
+
+
+async def test_change_workspace_shows_picker(fresh_db):
+    draft_id = await _mk_draft()
+    cb = _cb(f"chws:{draft_id}")
+
+    await on_change_workspace(cb)
+
+    cb.message.edit_reply_markup.assert_awaited()
+    rows = cb.message.edit_reply_markup.await_args.kwargs["reply_markup"].inline_keyboard
+    callback_data = [b.callback_data for row in rows for b in row]
+    assert any(c.startswith("setws:") for c in callback_data)
+    assert any(c.startswith("back:") for c in callback_data)
+
+
+async def test_set_workspace_updates_draft(fresh_db):
+    draft_id = await _mk_draft(note_type="note")
+    cb = _cb(f"setws:{draft_id}:work")
+
+    await on_set_workspace(cb)
+
+    d = await drafts.get(draft_id)
+    assert d.workspace == "work"
+    cb.message.edit_text.assert_awaited()

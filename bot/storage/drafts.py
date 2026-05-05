@@ -30,6 +30,7 @@ class Draft:
     error: Optional[str]
     created_at: int
     updated_at: int
+    workspace: str = "personal"  # одно из workspaces.all_keys(); default = DEFAULT_WORKSPACE.
 
 
 def _row_to_draft(row) -> Draft:
