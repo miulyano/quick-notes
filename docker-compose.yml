@@ -5,7 +5,11 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/app/data
+      - notes_tmp:/tmp/notes-bot
     deploy:
       resources:
         limits:
           memory: 220m
+
+volumes:
+  notes_tmp:

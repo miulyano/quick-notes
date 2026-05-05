@@ -8,7 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from bot.config import settings
-from bot.handlers import callbacks, commands, inputs
+from bot.handlers import callbacks, commands, inputs, voice
 from bot.middlewares.auth import AuthMiddleware
 from bot.storage import db, drafts
 from bot.storage.drafts import Draft
@@ -65,6 +65,7 @@ async def main() -> None:
     db_path = settings.DATABASE_PATH
     if db_path != ":memory:":
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    os.makedirs(settings.TEMP_DIR, exist_ok=True)
     await db.init_db(db_path)
     await _recover_stuck_drafts()
 
@@ -79,6 +80,7 @@ async def main() -> None:
 
     dp.include_router(commands.router)
     dp.include_router(callbacks.router)
+    dp.include_router(voice.router)
     dp.include_router(inputs.router)
 
     on_saved, on_failed = _make_save_callbacks(bot)
