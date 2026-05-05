@@ -4,6 +4,37 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.4.0] – 2026-05-05
+
+### Added
+- Реальный GPT-4o classify+format одним вызовом (`services/llm_processor.py`).
+  Без `OPENAI_API_KEY` — fallback в stub. На ошибку OpenAI — тоже stub.
+- `domain/note_types.py`: 7 типов заметок (`note`, `task`, `idea`, `meeting`,
+  `1on1`, `work`, `personal`). Каждый со своим описанием для LLM, набором
+  properties (Notion-mapping) и `db_env`-переменной.
+- `domain/templates.py`: per-type markdown-шаблоны (task/meeting/1on1
+  получают структурированное оформление из `extras`, остальные — passthrough).
+- Per-type Notion DB routing: `NOTION_DB_TASK`, `NOTION_DB_IDEA`,
+  `NOTION_DB_MEETING`, `NOTION_DB_1ON1`, `NOTION_DB_WORK`, `NOTION_DB_PERSONAL`,
+  `NOTION_DB_NOTE`. Если для типа DB не задан — fallback на `NOTION_DATABASE_ID`.
+- `notion_client.build_properties()`: преобразование `draft.properties` (JSON
+  от LLM) в Notion-properties payload по типу (title/rich_text/select/
+  multi_select/date/checkbox).
+- Кнопка `🔁 Type` в превью + полная клавиатура выбора типа с возвратом
+  через `⬅️ Назад`. После смены — превью перерисовывается с новым label.
+- 24 новых теста: `test_note_types.py` (6), `test_templates.py` (8),
+  обновлён `test_llm_processor.py` (5 real-path), `test_notion_client.py`
+  (per-type DB, multi-select, fallback). Всего 78 — все зелёные.
+
+### Changed
+- `requirements.txt`: добавлен `openai>=1.50`.
+- `bot/config.py`: per-type DB env vars + `OPENAI_API_KEY` + `OPENAI_MODEL`,
+  свойство `openai_enabled`, метод `database_id_for(db_env)`.
+- `services/llm_processor.py`: расширил `ProcessedNote` полем `extras`,
+  добавил `set_client()` test hook, system prompt с описанием всех типов.
+- `services/notion_client.py`: routing по `note_type.db_env`, properties
+  строятся через `build_properties()` из конфига типа.
+
 ## [0.3.0] – 2026-05-05
 
 ### Added
