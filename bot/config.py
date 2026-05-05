@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o"
 
+    # AssemblyAI Universal-2 для транскрибации голоса/видео.
+    # Empty → voice/audio/video handlers отвечают "транскрибация выключена".
+    ASSEMBLYAI_API_KEY: Optional[str] = None
+    ASSEMBLYAI_SPEECH_MODEL: str = "universal"  # universal | nano | slam-1
+    # Force a language ("ru", "en"). None → autodetect (ненадёжно для <30 сек).
+    FORCE_LANGUAGE_CODE: Optional[str] = None
+    TEMP_DIR: str = "/tmp/notes-bot"
+
     @cached_property
     def allowed_user_ids(self) -> list[int]:
         return [int(uid.strip()) for uid in self.ALLOWED_USER_IDS.split(",") if uid.strip()]
@@ -42,6 +50,10 @@ class Settings(BaseSettings):
     @property
     def openai_enabled(self) -> bool:
         return bool(self.OPENAI_API_KEY)
+
+    @property
+    def assemblyai_enabled(self) -> bool:
+        return bool(self.ASSEMBLYAI_API_KEY)
 
     def database_id_for(self, db_env: str) -> Optional[str]:
         """Resolve per-type DB id by env-name; fall back to default."""

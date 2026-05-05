@@ -4,6 +4,35 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.5.0] – 2026-05-05
+
+### Added
+- Голос/аудио/видео/видео-кружочки: `bot/handlers/voice.py` — единый
+  handler через `F.voice | F.audio | F.video | F.video_note`. Pipeline:
+  draft (status=raw, file_id в payload) → download → AssemblyAI Universal-2 →
+  draft.transcribed → LLM classify+format → preview с теми же кнопками
+  Save/Type/Cancel. Сырой транскрипт остаётся в БД, в Notion идёт только
+  готовая заметка после LLM.
+- `bot/services/transcriber.py`: упрощённая обёртка над `assemblyai` SDK с
+  диаризацией. Multi-speaker → строки `A: ...` / `B: ...` для LLM.
+  `set_client_override()` test hook. Без `ASSEMBLYAI_API_KEY` —
+  RuntimeError, handler отвечает «транскрибация выключена».
+- ProgressReporter подключён к статусу: «Скачиваю…» → «Транскрибирую…» →
+  «Готовлю заметку…».
+- Sweep `TEMP_DIR` создаётся на старте бота. Volume в compose
+  (`./tmp:/tmp/notes-bot`).
+- Durability при сбоях медиа: download fail → draft в `status=raw` с
+  `file_id` (видно через `/list`). Transcribe fail — то же.
+- 9 новых тестов: `test_transcriber.py` (render-with-speakers, disabled
+  raises), `test_handlers_voice.py` (happy path с моками, durability
+  при ошибках download/transcribe). Всего 87 — все зелёные.
+
+### Changed
+- `requirements.txt`: добавлен `assemblyai>=0.35`.
+- `bot/config.py`: `ASSEMBLYAI_API_KEY`, `ASSEMBLYAI_SPEECH_MODEL`,
+  `FORCE_LANGUAGE_CODE`, `TEMP_DIR`, свойство `assemblyai_enabled`.
+- `bot/main.py`: подключён voice router, `os.makedirs(TEMP_DIR)` на старте.
+
 ## [0.4.0] – 2026-05-05
 
 ### Added
