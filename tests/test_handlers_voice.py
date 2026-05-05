@@ -41,6 +41,7 @@ def _voice_message(file_id="vid-1"):
     msg.audio = None
     msg.video = None
     msg.video_note = None
+    msg.forward_origin = None
     sent = MagicMock(message_id=4242)
     msg.answer = AsyncMock(return_value=sent)
     return msg
