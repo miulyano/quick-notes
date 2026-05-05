@@ -13,10 +13,23 @@ class Settings(BaseSettings):
     ALLOWED_USER_IDS: str  # comma-separated list, parsed via property
     DATABASE_PATH: str = "data/notes.db"
 
-    # Notion integration. Both empty → notion_client falls back to stub mode
-    # (logs payload, returns fake page_id). Useful for dev without Notion creds.
+    # Notion integration. NOTION_TOKEN + NOTION_DATABASE_ID (default fallback DB)
+    # both required to enable real saves. Per-type DB overrides below — if a
+    # type's DB var is unset, the default DB is used.
     NOTION_TOKEN: Optional[str] = None
     NOTION_DATABASE_ID: Optional[str] = None
+    NOTION_DB_NOTE: Optional[str] = None
+    NOTION_DB_TASK: Optional[str] = None
+    NOTION_DB_IDEA: Optional[str] = None
+    NOTION_DB_MEETING: Optional[str] = None
+    NOTION_DB_1ON1: Optional[str] = None
+    NOTION_DB_WORK: Optional[str] = None
+    NOTION_DB_PERSONAL: Optional[str] = None
+
+    # OpenAI for classify+format. Empty → llm_processor stub (single 'note' type,
+    # body == raw input). Useful for dev without API costs.
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o"
 
     @cached_property
     def allowed_user_ids(self) -> list[int]:
@@ -25,6 +38,14 @@ class Settings(BaseSettings):
     @property
     def notion_enabled(self) -> bool:
         return bool(self.NOTION_TOKEN and self.NOTION_DATABASE_ID)
+
+    @property
+    def openai_enabled(self) -> bool:
+        return bool(self.OPENAI_API_KEY)
+
+    def database_id_for(self, db_env: str) -> Optional[str]:
+        """Resolve per-type DB id by env-name; fall back to default."""
+        return getattr(self, db_env, None) or self.NOTION_DATABASE_ID
 
 
 settings = Settings()
