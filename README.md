@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.2.0-blue)
+![version](https://img.shields.io/badge/version-0.3.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, форварды;
 транскрибирует медиа, классифицирует через GPT-4o, сохраняет готовые страницы в
@@ -9,15 +9,18 @@ Telegram-бот для персональных заметок: принимае
 > Архитектурный план — `~/.claude/plans/notes-bot-giggly-lemur.md`. Эволюция —
 > отдельные ветки и Conventional-Commits-PR в `main` (см. `AGENTS.md`).
 
-## Что умеет (на 0.2.0)
+## Что умеет (на 0.3.0)
 
 - Принимает текст в личке.
 - Создаёт черновик в SQLite **до** любой обработки (durability-контракт).
 - Прогоняет текст через LLM-pipeline (пока stub: тип `note`, title = первая
-  строка, тело = исходный текст).
+  строка, тело = исходный текст). Реальный GPT-4o подключается в Инкременте 3.
 - Показывает превью с inline-кнопками `💾 Save` / `✖️ Cancel`.
-- На Save — кладёт в outbox-очередь, фоновой воркер вызывает Notion-клиент
-  (пока stub, логирует и возвращает fake `page_id`).
+- На Save — кладёт в outbox-очередь, фоновой воркер вызывает Notion API.
+  Если `NOTION_TOKEN`/`NOTION_DATABASE_ID` заданы — реальный `pages.create`
+  через `notion-client`. Без них — stub-режим (только лог).
+- Markdown тела заметки конвертируется в Notion blocks: параграфы,
+  заголовки `#`/`##`/`###`, списки `-`/`1.`, цитаты `>`, code-fences ` ``` `.
 - На успех — атомарно вставляет запись идемпотентности, удаляет черновик и
   outbox-строку. Превью редактируется в «✅ Сохранено в Notion».
 - На ошибку — экспоненциальный backoff. После `MAX_ATTEMPTS` черновик помечается
@@ -26,12 +29,33 @@ Telegram-бот для персональных заметок: принимае
   (перезапуск всех `failed`).
 - На старте: восстановление черновиков, застрявших в `saving` дольше 5 минут.
 
+## Подключение Notion
+
+1. Создать **Internal Integration** на https://www.notion.so/my-integrations,
+   скопировать токен.
+2. В Notion создать базу (database) с тремя обязательными properties:
+   - **Name** — `title` (Notion требует title для любой базы).
+   - **Type** — `select` (значения опциональны, бот будет добавлять).
+   - **CreatedAt** — `date`.
+3. В меню базы (`…` → Connections) — подключить интеграцию.
+4. Скопировать ID базы из URL (32-символьный hex после workspace).
+5. В `.env`:
+
+   ```
+   NOTION_TOKEN=secret_xxx
+   NOTION_DATABASE_ID=abcdef...
+   ```
+
+Если оставить пустыми — бот работает в stub-режиме (полезно для dev без
+аккаунта Notion).
+
 ## Стек
 
 - Python 3.11+
 - aiogram 3.x — Telegram bot framework
 - pydantic-settings — config через `.env`
 - aiosqlite — async-драйвер SQLite
+- notion-client — Python SDK Notion API
 - pytest + pytest-asyncio — тесты
 - Docker + docker-compose
 
@@ -49,7 +73,7 @@ bot/
 │   └── auth.py            # whitelist Telegram user IDs
 ├── services/
 │   ├── llm_processor.py   # stub: classify + format (Increment 3 — реальный GPT-4o)
-│   └── notion_client.py   # stub create_page (Increment 2 — реальный notion-client)
+│   └── notion_client.py   # реальный pages.create через notion-client (+ stub fallback)
 ├── domain/
 │   ├── note_types.py      # пока один тип note
 │   └── templates.py       # markdown-шаблоны
@@ -65,6 +89,7 @@ bot/
 └── utils/
     ├── progress.py        # ProgressReporter
     ├── text_chunking.py
+    ├── md_blocks.py       # markdown → Notion blocks
     └── errors.py
 tests/                     # pytest + pytest-asyncio, in-memory SQLite фикстура
 data/                      # SQLite БД (volume в compose)
@@ -99,7 +124,7 @@ source .venv/bin/activate
 pytest -v
 ```
 
-39 тестов на момент 0.2.0:
+54 теста на момент 0.3.0:
 - `test_config.py`, `test_auth.py` — конфиг и middleware.
 - `test_drafts.py`, `test_outbox.py`, `test_idempotency.py`, `test_save_tx.py` —
   storage-слой (in-memory SQLite через фикстуру `fresh_db`).
@@ -107,6 +132,8 @@ pytest -v
   max_attempts.
 - `test_llm_processor.py` — stub.
 - `test_handlers_inputs.py`, `test_handlers_callbacks.py` — UX-логика.
+- `test_md_blocks.py` — конвертер markdown → Notion blocks.
+- `test_notion_client.py` — stub-режим, реальный режим (мок SDK), failure-injector.
 
 ## Настройка `.env`
 
@@ -115,6 +142,8 @@ pytest -v
 | `BOT_TOKEN` | Токен Telegram-бота от `@BotFather` |
 | `ALLOWED_USER_IDS` | Разрешённые TG user IDs через запятую |
 | `DATABASE_PATH` | Путь к файлу SQLite (по умолчанию `data/notes.db`) |
+| `NOTION_TOKEN` | Токен Internal Integration Notion. Пусто → stub-режим |
+| `NOTION_DATABASE_ID` | ID базы заметок в Notion. Пусто → stub-режим |
 
-В следующих инкрементах добавятся `NOTION_TOKEN`, `NOTION_DATABASE_ID`,
-`OPENAI_API_KEY`, `ASSEMBLYAI_API_KEY`.
+В следующих инкрементах добавятся `OPENAI_API_KEY` (Инкремент 3),
+`ASSEMBLYAI_API_KEY` (Инкремент 4).
