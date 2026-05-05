@@ -4,6 +4,22 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.6.0] – 2026-05-05
+
+### Added
+- Поддержка форвард-сообщений: текст, голос, аудио, видео, видео-кружочки.
+- `bot/utils/forward.py`: `extract(message)` парсит `forward_origin`
+  (User / HiddenUser / Chat / Channel) → метаданные (автор, канал, дата,
+  подпись, оригинальный message_id). `format_prefix(meta)` рендерит
+  компактный context-блок `[Forwarded] От: …; Когда: …`.
+- В `handlers/inputs.py` и `handlers/voice.py`: при наличии `forward_origin`
+  draft создаётся как `kind=forward`, `raw_payload` хранит JSON с текстом и
+  метаданными, в LLM подаётся **enriched-text** с prefix'ом — классификатор
+  получает контекст «это форвард, а не моя мысль».
+- 9 новых тестов forward (User/HiddenUser/Chat/Channel/no-forward/format_prefix/
+  enrich) + интеграционный тест в `test_handlers_inputs.py` (kind=forward,
+  enriched LLM-input). Всего 97 — все зелёные.
+
 ## [0.5.0] – 2026-05-05
 
 ### Added

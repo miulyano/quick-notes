@@ -29,6 +29,7 @@ from bot.config import settings
 from bot.handlers.inputs import format_preview, preview_keyboard
 from bot.services import llm_processor, transcriber
 from bot.storage import drafts
+from bot.utils import forward as forward_utils
 from bot.utils.progress import ProgressReporter
 
 router = Router()
@@ -65,20 +66,23 @@ async def handle_media(message: Message, bot: Bot) -> None:
         )
         return
 
+    forward_meta = forward_utils.extract(message)
     payload = json.dumps(
         {
             "file_id": media.file_id,
             "duration": getattr(media, "duration", None),
             "mime_type": getattr(media, "mime_type", None),
+            "forward": forward_meta,
         },
         ensure_ascii=False,
     )
+    draft_kind = "forward" if forward_meta else kind
 
     draft_id = await drafts.create(
         user_id=message.from_user.id,
         chat_id=message.chat.id,
         message_id=message.message_id,
-        kind=kind,
+        kind=draft_kind,
         raw_payload=payload,
     )
 
@@ -110,8 +114,11 @@ async def handle_media(message: Message, bot: Bot) -> None:
         _cleanup(audio_path)
 
         await progress.set_phase("Готовлю заметку…")
+        llm_input = (
+            forward_utils.enrich(result.text, forward_meta) if forward_meta else result.text
+        )
         try:
-            processed = await llm_processor.process(result.text)
+            processed = await llm_processor.process(llm_input)
         except Exception as exc:
             logger.exception("llm_processor failed for draft=%s", draft_id)
             await drafts.update(draft_id, status="failed", error=f"llm: {exc}")

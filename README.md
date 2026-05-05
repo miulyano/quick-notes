@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.5.0-blue)
+![version](https://img.shields.io/badge/version-0.6.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, форварды;
 транскрибирует медиа, классифицирует через GPT-4o, сохраняет готовые страницы в
@@ -9,13 +9,17 @@ Telegram-бот для персональных заметок: принимае
 > Архитектурный план — `~/.claude/plans/notes-bot-giggly-lemur.md`. Эволюция —
 > отдельные ветки и Conventional-Commits-PR в `main` (см. `AGENTS.md`).
 
-## Что умеет (на 0.5.0)
+## Что умеет (на 0.6.0)
 
-- Принимает **текст, голосовые, аудио, видео, видео-кружочки**.
+- Принимает **текст, голосовые, аудио, видео, видео-кружочки, форварды**
+  (любой из перечисленных типов).
 - Голос/аудио/видео транскрибируется через **AssemblyAI Universal-2** с
   диаризацией спикеров. Сырой транскрипт остаётся в БД (промежуточный шаг),
   в Notion идёт только готовая заметка после LLM. Без `ASSEMBLYAI_API_KEY` —
   голосовые отключены, бот отвечает «транскрибация выключена».
+- Для форвардов извлекаются метаданные (автор, канал, дата, подпись,
+  оригинальный message_id) и подаются в LLM как контекст-prefix
+  `[Forwarded] От: …; Когда: …`. Draft помечается `kind=forward`.
 - Создаёт черновик в SQLite **до** любой обработки (durability-контракт).
 - **Один GPT-4o-вызов**: классифицирует тип (note / task / idea / meeting /
   1on1 / work / personal), извлекает properties (Status, Priority, DueDate,
@@ -124,6 +128,7 @@ bot/
     ├── progress.py        # ProgressReporter
     ├── text_chunking.py
     ├── md_blocks.py       # markdown → Notion blocks
+    ├── forward.py         # извлечение метаданных forward + prefix для LLM
     └── errors.py
 tests/                     # pytest + pytest-asyncio, in-memory SQLite фикстура
 data/                      # SQLite БД (volume в compose)
@@ -158,7 +163,7 @@ source .venv/bin/activate
 pytest -v
 ```
 
-87 тестов на момент 0.5.0:
+97 тестов на момент 0.6.0:
 - `test_config.py`, `test_auth.py` — конфиг и middleware.
 - `test_drafts.py`, `test_outbox.py`, `test_idempotency.py`, `test_save_tx.py` —
   storage-слой (in-memory SQLite через фикстуру `fresh_db`).
@@ -175,6 +180,8 @@ pytest -v
 - `test_transcriber.py` — диаризация render-with-speakers, disabled-flag.
 - `test_handlers_voice.py` — happy path с моками download/transcribe/LLM,
   durability при ошибках.
+- `test_forward.py` — извлечение метаданных всех типов forward_origin
+  (User/HiddenUser/Chat/Channel) + format_prefix + enrich.
 
 ## Настройка `.env`
 
