@@ -4,6 +4,22 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.11.0] – 2026-05-06
+
+### Added
+- Хендлер документов (`bot/handlers/documents.py`) — принимает
+  `message.document` (форварды и прямой upload) форматов **txt, md, csv,
+  pdf, docx**. Текст извлекается локально через новый
+  `bot/services/doc_extractor.py` (`pypdf` для PDF, `python-docx` для DOCX,
+  stdlib для остальных), затем идёт в существующий LLM-pipeline. Лимит
+  размера файла — 20 МБ (Telegram bot API). Аудио/видео, пришедшие как
+  document, отбиваются с просьбой переслать как медиа.
+- Map-reduce путь в `llm_processor.process_long(...)` для длинных документов
+  (>40k символов): сплит на куски, per-chunk summarize-вызов с упором на
+  agenda / decisions / action items / status updates / blockers, финальная
+  склейка через обычный `process()` для классификации. Прогресс отдаётся
+  через `on_fraction` callback в ProgressReporter.
+
 ## [0.10.0] – 2026-05-06
 
 ### Changed
