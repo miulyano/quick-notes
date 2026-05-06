@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.11.1-blue)
+![version](https://img.shields.io/badge/version-0.12.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -53,9 +53,12 @@ DB-properties — это **реф-пример**, не «единственны�
   `📁 Workspace` снизу. Workspace и тип можно переопределить вручную.
 - На Save — кладёт в outbox-очередь, фоновой воркер вызывает API провайдера
   (Buildin или Notion в зависимости от `NOTES_PROVIDER`).
-- **Routing**: per-(workspace × type) для Buildin (`BUILDIN_DB_<WS>_<TYPE>`)
-  с фолбэком на per-type / default; per-type для Notion (`NOTION_DB_<TYPE>`)
-  с фолбэком на `NOTION_DATABASE_ID`. Без токена провайдера — stub-режим.
+- **Routing**: per-(workspace × type) для Buildin (`BUILDIN_DB_<WS>_<TYPE>` →
+  `BUILDIN_DB_<TYPE>` → `BUILDIN_DB_DEFAULT`); для Notion та же цепочка
+  (`NOTION_DB_<WS>_<TYPE>` → `NOTION_DB_<TYPE>` → `NOTION_DATABASE_ID`) **+
+  lazy auto-create** под `NOTION_PARENT_PAGE_<WS>` если ничего не задано —
+  бот создаёт DB при первом hit и кэширует id в `notion_dbs`. Без токена
+  провайдера — stub-режим.
 - Markdown тела заметки конвертируется в provider-specific blocks (параграфы,
   заголовки `#`/`##`/`###`, списки `-`/`1.`, цитаты `>`, code-fences ` ``` `).
   Для Buildin длинные заметки (>100 блоков) дописываются чанками по 100
@@ -145,17 +148,60 @@ Notion поставьте `NOTES_PROVIDER=notion`.
 Создать **Internal Integration** на https://www.notion.so/my-integrations,
 скопировать токен → `NOTION_TOKEN` в `.env`.
 
-### 2. Базы под каждый тип
+### 2. Резолв DB id и lazy auto-create
 
-Под каждый тип заметок создаётся **отдельная Notion-база** со своей схемой и
-шарится с интеграцией. Тип, для которого `NOTION_DB_<TYPE>` пуст, попадает
-в базу из `NOTION_DATABASE_ID` (fallback).
+Бот ищет database для пары `(workspace, type)` по цепочке:
 
-Schema ниже — реф-пример из текущего `bot/domain/note_types.py`. Если
-редактируешь реестр под свой setup, эта таблица перестанет соответствовать
-твоей конфигурации:
+```
+notion_dbs (SQLite cache)
+  → NOTION_DB_<WS>_<TYPE>     (env, например NOTION_DB_WORK_TASK)
+  → NOTION_DB_<TYPE>          (per-type, без workspace-разреза)
+  → NOTION_DATABASE_ID        (глобальный fallback)
+  → auto-create под NOTION_PARENT_PAGE_<WS>, id кэшируется в notion_dbs.
+```
 
-| Тип | Env var | Required properties (имя — kind) |
+Любой первый результат — финальный.
+
+### 3. Lazy auto-create (рекомендуется)
+
+Минимальный setup без ручного создания 35 баз. Создаёшь **5 пустых
+страниц-родителей** в Notion — по одной на workspace (`personal`, `work`,
+`family`, `growth`, `ai_path`). Расшарь top-level страницу с integration —
+все вложенные наследуют доступ.
+
+```
+Notes-bot/                  ← top page (расшарена с integration)
+├── 📁 Личное               ← parent для workspace=personal
+├── 📁 Работа               ← parent для workspace=work
+├── 📁 Семья                ← parent для workspace=family
+├── 📁 Куда расти?          ← parent для workspace=growth
+└── 📁 Путь ИИ              ← parent для workspace=ai_path
+```
+
+ID каждой workspace-страницы (32-hex из URL) → в `.env`:
+
+```
+NOTION_PARENT_PAGE_PERSONAL=...
+NOTION_PARENT_PAGE_WORK=...
+NOTION_PARENT_PAGE_FAMILY=...
+NOTION_PARENT_PAGE_GROWTH=...
+NOTION_PARENT_PAGE_AI_PATH=...
+```
+
+При первом сохранении в `(workspace × type)` бот создаст полноценную DB
+под нужной страницей со схемой типа из реестра (`note_types.py`) и
+закэширует id в SQLite. Структура растёт по факту использования —
+пустые комбинации не плодятся. Workspace, для которого
+`NOTION_PARENT_PAGE_<WS>` не задан, фолбэкнется на `NOTION_DB_<TYPE>` или
+`NOTION_DATABASE_ID`.
+
+### 4. Ручное создание баз (опционально)
+
+Если хочется контролировать схему — создавай руками. Schema ниже — реф-пример
+из текущего `bot/domain/note_types.py`. Если редактируешь реестр, эта
+таблица перестанет соответствовать твоей конфигурации:
+
+| Тип | Env var (per-type) | Required properties (имя — kind) |
 |---|---|---|
 | `note` | `NOTION_DB_NOTE` | Name (title), Tags (multi_select) |
 | `task` | `NOTION_DB_TASK` | Name (title), Status (select), Priority (select), DueDate (date) |
@@ -165,19 +211,22 @@ Schema ниже — реф-пример из текущего `bot/domain/note_t
 | `work` | `NOTION_DB_WORK` | Name (title), Tags (multi_select) |
 | `personal` | `NOTION_DB_PERSONAL` | Name (title), Tags (multi_select) |
 
-Кроме перечисленных — бот всегда дописывает `CreatedAt` (date). Это поле
-должно присутствовать в каждой базе.
+Per-(workspace × type): `NOTION_DB_<WS>_<TYPE>` (например
+`NOTION_DB_WORK_TASK`). Имеет высший приоритет среди env. Бот всегда
+дописывает `CreatedAt` (date) — auto-create добавляет это поле сам.
 
-### 3. Шаринг
+### 5. Шаринг
 
-Для каждой базы: `…` (меню в правом верхнем углу) → **Connections** →
-выбрать интеграцию.
+Для каждой базы / родительской страницы: `…` (меню в правом верхнем углу)
+→ **Connections** → выбрать integration. Auto-created DB наследуют доступ
+от parent-page. Top-level page расшарена один раз — все вложенные DB и
+страницы наследуют.
 
-### 4. ID
+### 6. ID
 
-Скопировать database id из URL (32-символьный hex после workspace) в
-соответствующую переменную `.env`. Без `NOTION_TOKEN`/`NOTION_DATABASE_ID`
-бот работает в stub-режиме (логирует payload).
+Скопировать database / page id из URL (32-символьный hex после workspace)
+в соответствующую переменную `.env`. Без `NOTION_TOKEN` бот работает в
+stub-режиме (логирует payload).
 
 ## OpenAI
 
@@ -489,8 +538,10 @@ pytest -v
 | `BUILDIN_DB_<TYPE>` | Per-type fallback DB id (без workspace-разреза) |
 | `BUILDIN_DB_DEFAULT` | Финальный fallback DB id |
 | `NOTION_TOKEN` | Токен Internal Integration Notion. Пусто → stub-режим |
-| `NOTION_DATABASE_ID` | Default DB id (fallback для типов без своей переменной) |
+| `NOTION_DATABASE_ID` | Default DB id (финальный fallback для всех типов и workspace'ов) |
 | `NOTION_DB_<TYPE>` | Per-type DB id: `NOTE`, `TASK`, `IDEA`, `MEETING`, `1ON1`, `WORK`, `PERSONAL`. Все optional |
+| `NOTION_DB_<WS>_<TYPE>` | Per-(workspace × type) DB id, например `NOTION_DB_WORK_TASK`. Высший приоритет среди env. Optional |
+| `NOTION_PARENT_PAGE_<WS>` | Parent-page id для lazy auto-create DB конкретного workspace. Если задан — бот создаст DB при первом сохранении в `(<ws> × type)` и закэширует id. Optional |
 | `OPENAI_API_KEY` | Ключ OpenAI для GPT-4o classify+format. Пусто → stub |
 | `OPENAI_MODEL` | Имя модели (по умолчанию `gpt-4o`) |
 | `ASSEMBLYAI_API_KEY` | Ключ AssemblyAI для транскрибации. Пусто → voice/audio/video отключены |

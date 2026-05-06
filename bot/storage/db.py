@@ -55,6 +55,15 @@ _MIGRATIONS = [
         saved_at        INTEGER NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS notion_dbs (
+        workspace       TEXT NOT NULL,
+        note_type       TEXT NOT NULL,
+        database_id     TEXT NOT NULL,
+        created_at      INTEGER NOT NULL,
+        PRIMARY KEY (workspace, note_type)
+    )
+    """,
 ]
 
 

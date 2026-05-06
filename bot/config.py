@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     NOTION_DB_WORK: Optional[str] = None
     NOTION_DB_PERSONAL: Optional[str] = None
 
+    # Notion lazy DB creation: NOTION_PARENT_PAGE_<WS> — id workspace-страницы.
+    # Если задан, sink создаёт DB на лету при первом сохранении в (workspace × type)
+    # под этой страницей и кэширует id в SQLite (см. bot/storage/notion_dbs.py).
+    # Читаются через notion_parent_page_id() напрямую из os.environ.
+
     # Buildin integration. BUILDIN_TOKEN + хотя бы один BUILDIN_DB_* — enable real saves.
     # Spaces (BUILDIN_SPACE_<WS>) нужны только для скрипта setup_buildin_dbs.
     # DB IDs хранятся как BUILDIN_DB_<WS>_<TYPE> и читаются через
@@ -56,7 +61,23 @@ class Settings(BaseSettings):
 
     @property
     def notion_enabled(self) -> bool:
-        return bool(self.NOTION_TOKEN and self.NOTION_DATABASE_ID)
+        if not self.NOTION_TOKEN:
+            return False
+        # Любой из источников DB id достаточен:
+        # 1) NOTION_DATABASE_ID, 2) хотя бы один per-type NOTION_DB_<TYPE>,
+        # 3) хотя бы один NOTION_PARENT_PAGE_<WS> для lazy auto-create.
+        if self.NOTION_DATABASE_ID:
+            return True
+        for env, value in os.environ.items():
+            if not value:
+                continue
+            if env.startswith("NOTION_DB_") or env.startswith("NOTION_PARENT_PAGE_"):
+                return True
+        per_type_attrs = (
+            "NOTION_DB_NOTE", "NOTION_DB_TASK", "NOTION_DB_IDEA", "NOTION_DB_MEETING",
+            "NOTION_DB_1ON1", "NOTION_DB_WORK", "NOTION_DB_PERSONAL",
+        )
+        return any(getattr(self, name, None) for name in per_type_attrs)
 
     @property
     def buildin_enabled(self) -> bool:
@@ -88,11 +109,18 @@ class Settings(BaseSettings):
         "NOTION_DB_TASK"). Для Buildin отрезаем префикс и берём суффикс типа.
         """
         provider = provider or self.NOTES_PROVIDER
+        type_suffix = note_type_db_env.removeprefix("NOTION_DB_")
+
         if provider == "notion":
+            # NOTION_DB_<WS>_<TYPE> → NOTION_DB_<TYPE> → NOTION_DATABASE_ID
+            if workspace_key:
+                ws_env = f"NOTION_DB_{workspace_key.upper()}_{type_suffix}"
+                ws_value = os.environ.get(ws_env)
+                if ws_value:
+                    return ws_value
             return getattr(self, note_type_db_env, None) or self.NOTION_DATABASE_ID
 
         # Buildin: соответствие имени env по типу: NOTION_DB_TASK → BUILDIN_DB_<WS>_TASK.
-        type_suffix = note_type_db_env.removeprefix("NOTION_DB_")
         if workspace_key:
             ws_env = f"BUILDIN_DB_{workspace_key.upper()}_{type_suffix}"
             ws_value = os.environ.get(ws_env)
@@ -103,6 +131,9 @@ class Settings(BaseSettings):
 
     def buildin_space_id(self, workspace_key: str) -> Optional[str]:
         return os.environ.get(f"BUILDIN_SPACE_{workspace_key.upper()}")
+
+    def notion_parent_page_id(self, workspace_key: str) -> Optional[str]:
+        return os.environ.get(f"NOTION_PARENT_PAGE_{workspace_key.upper()}")
 
 
 settings = Settings()

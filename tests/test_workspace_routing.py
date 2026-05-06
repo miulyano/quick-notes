@@ -6,11 +6,13 @@ from bot.config import settings
 
 
 @pytest.fixture(autouse=True)
-def _clear_buildin_envs(monkeypatch):
+def _clear_envs(monkeypatch):
     for key in (
         "BUILDIN_DB_WORK_TASK",
         "BUILDIN_DB_PERSONAL_TASK",
         "BUILDIN_DB_TASK",
+        "NOTION_DB_WORK_TASK",
+        "NOTION_DB_PERSONAL_TASK",
     ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr("bot.config.settings.BUILDIN_DB_DEFAULT", None)
@@ -45,11 +47,23 @@ def test_returns_none_when_unconfigured():
     assert got is None
 
 
-def test_notion_provider_ignores_workspace(monkeypatch):
-    monkeypatch.setattr("bot.config.settings.NOTION_DB_TASK", "notion-task-uuid")
-    monkeypatch.setattr("bot.config.settings.NOTION_DATABASE_ID", "notion-default")
+def test_notion_per_workspace_per_type_wins(monkeypatch):
+    monkeypatch.setenv("NOTION_DB_WORK_TASK", "ws-task-uuid")
+    monkeypatch.setattr("bot.config.settings.NOTION_DB_TASK", "type-task-uuid")
+    monkeypatch.setattr("bot.config.settings.NOTION_DATABASE_ID", "default-uuid")
+
     got = settings.database_id_for("NOTION_DB_TASK", provider="notion", workspace_key="work")
-    assert got == "notion-task-uuid"
+    assert got == "ws-task-uuid"
+
+
+def test_notion_per_type_fallback_when_no_workspace_match(monkeypatch):
+    monkeypatch.setattr("bot.config.settings.NOTION_DB_TASK", "type-task-uuid")
+    monkeypatch.setattr("bot.config.settings.NOTION_DATABASE_ID", "default-uuid")
+
+    got = settings.database_id_for(
+        "NOTION_DB_TASK", provider="notion", workspace_key="personal"
+    )
+    assert got == "type-task-uuid"
 
 
 def test_notion_falls_back_to_default_db_id(monkeypatch):
@@ -57,3 +71,12 @@ def test_notion_falls_back_to_default_db_id(monkeypatch):
     monkeypatch.setattr("bot.config.settings.NOTION_DATABASE_ID", "notion-default")
     got = settings.database_id_for("NOTION_DB_TASK", provider="notion")
     assert got == "notion-default"
+
+
+def test_notion_workspace_env_takes_priority_over_per_type(monkeypatch):
+    monkeypatch.setenv("NOTION_DB_PERSONAL_TASK", "ws-personal-task")
+    monkeypatch.setattr("bot.config.settings.NOTION_DB_TASK", "per-type-fallback")
+    got = settings.database_id_for(
+        "NOTION_DB_TASK", provider="notion", workspace_key="personal"
+    )
+    assert got == "ws-personal-task"
