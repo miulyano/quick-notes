@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.11.0-blue)
+![version](https://img.shields.io/badge/version-0.11.1-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -293,7 +293,8 @@ bot/
     ├── forward.py         # извлечение метаданных forward + prefix для LLM
     └── errors.py
 scripts/
-└── setup_buildin_dbs.py   # авто-создание Buildin DB по реестрам
+├── setup_buildin_dbs.py   # авто-создание Buildin DB по реестрам
+└── backup_db.sh           # online-backup SQLite + ротация (для cron на VPS)
 tests/                     # pytest + pytest-asyncio, in-memory SQLite фикстура
 data/                      # SQLite БД (volume в compose)
 ```
@@ -320,24 +321,114 @@ cp .env.example .env
 docker compose up --build
 ```
 
-`docker-compose.yml` ставит `restart: unless-stopped`, лимит памяти `220m`
-и persistent volume `./data` → `/app/data` (SQLite-файл живёт между
-рестартами).
+`docker-compose.yml` ставит `restart: unless-stopped`, лимит памяти `512m`
+(хватает для документов, проходящих map-reduce), persistent volume
+`./data` → `/app/data` (SQLite-файл живёт между рестартами), healthcheck
+`SELECT 1` к БД и ротацию логов (10 МБ × 5 файлов).
 
-### VPS
+### VPS (Ubuntu 22.04 / 24.04)
+
+#### 1. Подготовка сервера (один раз)
 
 ```bash
-ssh user@host
-git clone <repo-url> notes && cd notes
-cp .env.example .env  # заполнить BOT_TOKEN, ALLOWED_USER_IDS, BUILDIN_TOKEN, ...
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git sqlite3 curl ca-certificates
+
+# Docker Engine + compose plugin
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+    -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+    https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+    | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io \
+    docker-buildx-plugin docker-compose-plugin
+
+sudo usermod -aG docker $USER  # нужен relogin / `newgrp docker`
+```
+
+Минимум железа: 1 vCPU, 1 ГБ RAM, 10 ГБ SSD. Комфортно: 2 vCPU, 2 ГБ.
+
+#### 2. Деплой кода
+
+```bash
+sudo mkdir -p /opt/notes-bot && sudo chown $USER:$USER /opt/notes-bot
+cd /opt/notes-bot
+git clone <repo-url> .
+mkdir -p data
+
+# .env заполнить локально (см. разделы «Подключение Buildin / Notion»,
+# «OpenAI», «AssemblyAI» выше) и залить:
+#   scp .env user@vps:/opt/notes-bot/.env
+chmod 600 .env
+
 docker compose up -d --build
 docker compose logs -f bot
 ```
 
-После апдейтов:
+`restart: unless-stopped` поднимает контейнер при ребуте VPS автоматически —
+ничего настраивать в systemd не нужно.
+
+#### 3. Бэкап SQLite (cron + ротация)
+
+`scripts/backup_db.sh` делает `sqlite3 .backup` (online, безопасно при
+работающем боте через WAL), сжимает `gzip` и удаляет старше `KEEP_DAYS`.
+
 ```bash
-git pull && docker compose up -d --build
+sudo mkdir -p /var/backups/notes-bot
+sudo chown $USER:$USER /var/backups/notes-bot
+
+crontab -e
+# добавить строкой:
+17 3 * * * /opt/notes-bot/scripts/backup_db.sh >> /var/log/notes-bot-backup.log 2>&1
 ```
+
+Восстановление: остановить контейнер, распаковать дамп на место БД,
+запустить заново.
+
+```bash
+docker compose stop bot
+gunzip -c /var/backups/notes-bot/notes-YYYYMMDD-HHMMSS.db.gz > data/notes.db
+docker compose start bot
+```
+
+#### 4. Мониторинг (healthchecks.io)
+
+Создать на [healthchecks.io](https://healthchecks.io) check (free до 20),
+скопировать ping URL и в `crontab -e`:
+
+```bash
+*/5 * * * * docker inspect --format='{{.State.Health.Status}}' \
+    $(docker compose -f /opt/notes-bot/docker-compose.yml ps -q bot) 2>/dev/null \
+    | grep -q healthy && curl -fsS --retry 3 https://hc-ping.com/<uuid> > /dev/null
+```
+
+Контейнер падает / Docker daemon упал / VPS не поднялся — пинги
+прекращаются и через 10 минут healthchecks.io шлёт алерт.
+
+#### 5. Обновление до новой версии
+
+```bash
+cd /opt/notes-bot
+git pull
+docker compose up -d --build
+docker compose logs --tail=100 -f bot
+```
+
+Откат при несовместимой миграции БД: `git checkout <prev-tag>`,
+восстановить БД из бэкапа, `docker compose up -d --build`.
+
+#### Troubleshooting
+
+| Симптом | Причина / фикс |
+|---|---|
+| Бот молчит на сообщения | `ALLOWED_USER_IDS` не содержит твой TG id (`AuthMiddleware` режет). |
+| `Run polling for bot` не появляется | Неверный `BOT_TOKEN` или нет outbound https. |
+| На старте лог `BUILDIN_SPACE_<X>=` пуст | Не заданы UUID space'ов — заполнить или ограничить роутинг через `BUILDIN_DB_DEFAULT`. |
+| Документ >40k символов падает по OOM | Поднять `deploy.resources.limits.memory` в `docker-compose.yml`. |
+| `sqlite3: not found` в backup-скрипте | `sudo apt install sqlite3` на хост. |
 
 ## Тесты
 
