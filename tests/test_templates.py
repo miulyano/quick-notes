@@ -14,6 +14,16 @@ def test_task_with_checklist():
     assert "## Чек-лист" in out
     assert "- [ ] bump VERSION" in out
     assert "- [ ] tag" in out
+    assert out.index("Подготовить релиз") < out.index("## Чек-лист")
+
+
+def test_task_description_before_checklist_multiline():
+    body = "Цель: выкатить v1.2.\n\nКонтекст: команда ждёт релиз для демо в пятницу."
+    out = render("task", body, {"checklist": ["bump VERSION", "tag", "push"]})
+    assert "Цель: выкатить v1.2." in out
+    assert "Контекст: команда ждёт релиз" in out
+    assert out.index("Контекст") < out.index("## Чек-лист")
+    assert "- [ ] bump VERSION" in out
 
 
 def test_task_no_checklist():
@@ -40,6 +50,43 @@ def test_meeting_full():
 
 def test_meeting_minimal():
     assert render("meeting", "kick-off chat") == "kick-off chat"
+
+
+def test_meeting_sync_kind():
+    out = render(
+        "meeting",
+        "Команда быстро прошлась по статусам.",
+        {
+            "kind": "sync",
+            "status_updates": ["Алиса: auth готов", "Боб: миграция в проде"],
+            "blockers": ["Жду фронт"],
+            "action_items": ["Пингануть фронт", "Снять блокер"],
+        },
+    )
+    assert "## Status updates" in out
+    assert "- Алиса: auth готов" in out
+    assert "## Blockers" in out
+    assert "- Жду фронт" in out
+    assert "## Action items" in out
+    assert "- [ ] Пингануть фронт" in out
+    # Sync шаблон не использует agenda/decisions/discussion.
+    assert "## Agenda" not in out
+    assert "## Decisions" not in out
+    assert "## Discussion" not in out
+
+
+def test_meeting_sync_minimal_falls_back_to_body():
+    assert render("meeting", "Просто синк", {"kind": "sync"}) == "Просто синк"
+
+
+def test_meeting_kind_meeting_default_uses_classic_render():
+    out = render(
+        "meeting",
+        "Обсудили roadmap.",
+        {"kind": "meeting", "decisions": ["Push deadline"]},
+    )
+    assert "## Decisions" in out
+    assert "## Status updates" not in out
 
 
 def test_1on1_full():

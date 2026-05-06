@@ -83,6 +83,20 @@ def _build_system_prompt() -> str:
         f"Типы:\n\n{types_section}\n\n"
         f"Workspaces:\n{workspace_lines}\n\n"
         f"Если не уверен в workspace — выбирай `{DEFAULT_WORKSPACE}`.\n\n"
+        "Гайдлайны по конкретным типам:\n"
+        "- type=task: в `markdown_body` положи 1-3 коротких параграфа с описанием "
+        "задачи (контекст, мотивация, что именно надо сделать, условия успеха). "
+        "Действия / шаги выноси в `extras.checklist`. В `markdown_body` НЕ дублируй "
+        "пункты чек-листа — только описание. Если описания в исходном тексте нет — "
+        "оставь body пустым, чек-лист сам по себе.\n"
+        "- type=meeting: подвид `sync` — это регулярная встреча команды для сверки "
+        "статусов, выявления блокеров, назначения задач. Триггеры: «синк», «standup», "
+        "«daily», «weekly», «status», «команда собралась», «обсудили статусы», «блокеры». "
+        "Если запись выглядит как sync — верни `type=meeting` + `extras.kind=\"sync\"` "
+        "+ заполни `extras.status_updates` (по человеку или зоне), `extras.blockers` "
+        "(что мешает), `extras.action_items` (кто что делает). Поля agenda/decisions "
+        "для sync пропускай. Обычный митинг (kick-off, обсуждение, ретро) — "
+        "`extras.kind=\"meeting\"` (default), используй agenda/decisions/action_items.\n\n"
         "Верни СТРОГО JSON со схемой:\n"
         "{\n"
         '  "type": "<один из ключей типов>",\n'
@@ -90,12 +104,15 @@ def _build_system_prompt() -> str:
         '  "title": "<строка ≤80 символов>",\n'
         '  "properties": { "<имя property>": <value>, ... },\n'
         '  "extras": {\n'
-        '    "checklist": ["..."],     // для type=task\n'
-        '    "agenda": ["..."],        // для type=meeting\n'
-        '    "decisions": ["..."],     // для type=meeting\n'
-        '    "action_items": ["..."],  // для type=meeting\n'
-        '    "topics": ["..."],        // для type=1on1\n'
-        '    "follow_ups": ["..."]     // для type=1on1\n'
+        '    "checklist": ["..."],        // для type=task\n'
+        '    "kind": "meeting"|"sync",    // для type=meeting (default "meeting")\n'
+        '    "agenda": ["..."],           // для type=meeting kind=meeting\n'
+        '    "decisions": ["..."],        // для type=meeting kind=meeting\n'
+        '    "action_items": ["..."],     // для type=meeting (оба kind)\n'
+        '    "status_updates": ["..."],   // для type=meeting kind=sync\n'
+        '    "blockers": ["..."],         // для type=meeting kind=sync\n'
+        '    "topics": ["..."],           // для type=1on1\n'
+        '    "follow_ups": ["..."]        // для type=1on1\n'
         '  },\n'
         '  "markdown_body": "<основное тело заметки markdown>"\n'
         "}\n\n"

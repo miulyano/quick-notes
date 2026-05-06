@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.7.0-blue)
+![version](https://img.shields.io/badge/version-0.8.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, форварды;
 транскрибирует медиа, классифицирует через GPT-4o, сохраняет готовые страницы в
@@ -10,7 +10,7 @@ Telegram-бот для персональных заметок: принимае
 > Архитектурный план — `~/.claude/plans/notes-bot-giggly-lemur.md`. Эволюция —
 > отдельные ветки и Conventional-Commits-PR в `main` (см. `AGENTS.md`).
 
-## Что умеет (на 0.7.0)
+## Что умеет (на 0.8.0)
 
 - Принимает **текст, голосовые, аудио, видео, видео-кружочки, форварды**.
 - Голос/аудио/видео транскрибируется через **AssemblyAI Universal-2** с
@@ -25,9 +25,13 @@ Telegram-бот для персональных заметок: принимае
 - **Один GPT-4o-вызов**: классифицирует тип (note / task / idea / meeting /
   1on1 / work / personal), **выбирает workspace** (personal / work / family /
   growth / ai_path), извлекает properties (Status, Priority, DueDate, Tags,
-  Attendees, …) и форматирует тело как markdown под template типа. Без
-  `OPENAI_API_KEY` — stub-fallback (тип `note`, workspace `personal`,
-  тело = исходник).
+  Attendees, …) и форматирует тело как markdown под template типа. Для
+  `meeting` отдельно различает регулярные синки команды через
+  `extras.kind="sync"` — рендер ставит секции Status updates / Blockers /
+  Action items вместо классических Agenda / Decisions. Для `task`
+  описание задачи (контекст, мотивация) пишется в `markdown_body` перед
+  `## Чек-лист`. Без `OPENAI_API_KEY` — stub-fallback (тип `note`, workspace
+  `personal`, тело = исходник).
 - Превью с кнопками: `💾 Save` / `✖ Cancel` сверху, `🔁 Type` /
   `📁 Workspace` снизу. Workspace и тип можно переопределить вручную.
 - На Save — кладёт в outbox-очередь, фоновой воркер вызывает API провайдера
@@ -72,9 +76,21 @@ Telegram-бот для персональных заметок: принимае
 
 ### 3. Базы (databases)
 
-Внутри каждого space — отдельная DB на каждый тип заметки. Можно создать
-руками (тогда скопируйте UUID из URL в `BUILDIN_DB_<WS>_<TYPE>`), либо
-запустить автосоздание:
+Внутри каждого space скрипт создаёт отдельную **страницу-обёртку** на каждый
+тип заметки (`<ws.label> · <type.label>`, например «Работа · ✅ Задача»),
+а внутри страницы — full-page DB этого типа. Структура в Buildin:
+
+```
+space «Работа»
+├── page «Работа · ✅ Задача»
+│   └── DB Tasks
+├── page «Работа · 📝 Заметка»
+│   └── DB Notes
+└── …
+```
+
+Можно создать руками (тогда скопируйте UUID DB из URL в `BUILDIN_DB_<WS>_<TYPE>`),
+либо запустить автосоздание:
 
 ```bash
 source .venv/bin/activate
@@ -84,6 +100,12 @@ python -m scripts.setup_buildin_dbs >> .env
 Скрипт уважает уже заданные env'ы — заполняет только пустые slot'ы.
 Доп. флаги: `--dry-run` (без сетевых вызовов), `--workspace=<key>`,
 `--type=<key>` (только конкретный workspace или тип).
+
+Если у вас остались DB, созданные старой версией скрипта (лежат прямо в
+корне space, без page-обёртки), они продолжат работать — env-vars у них
+уже заполнены, скрипт их пропускает. Чтобы получить однородную структуру,
+удалите соответствующие `BUILDIN_DB_<WS>_<TYPE>` из `.env`, удалите DB в
+Buildin UI и перезапустите скрипт.
 
 Кроме перечисленных свойств бот всегда дописывает `CreatedAt` (date) — оно
 создаётся скриптом автоматически.
@@ -225,7 +247,7 @@ source .venv/bin/activate
 pytest -v
 ```
 
-129+ тестов на момент 0.7.0:
+133+ тестов на момент 0.8.0:
 - `test_config.py`, `test_auth.py` — конфиг и middleware.
 - `test_drafts.py`, `test_outbox.py`, `test_idempotency.py`, `test_save_tx.py` —
   storage-слой (in-memory SQLite через фикстуру `fresh_db`).

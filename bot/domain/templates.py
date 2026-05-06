@@ -44,6 +44,10 @@ def _render_idea(body: str, _extras: dict) -> str:
 
 
 def _render_meeting(body: str, extras: dict) -> str:
+    kind = (extras.get("kind") or "meeting").lower()
+    if kind == "sync":
+        return _render_sync(body, extras)
+
     agenda = extras.get("agenda") or []
     decisions = extras.get("decisions") or []
     actions = extras.get("action_items") or []
@@ -64,6 +68,34 @@ def _render_meeting(body: str, extras: dict) -> str:
     if decisions:
         parts.append("## Decisions")
         parts.extend(f"- {item}" for item in decisions)
+        parts.append("")
+    if actions:
+        parts.append("## Action items")
+        parts.extend(f"- [ ] {item}" for item in actions)
+
+    return "\n".join(parts).strip()
+
+
+def _render_sync(body: str, extras: dict) -> str:
+    statuses = extras.get("status_updates") or []
+    blockers = extras.get("blockers") or []
+    actions = extras.get("action_items") or []
+
+    if not (statuses or blockers or actions):
+        return body
+
+    parts: list[str] = []
+    if statuses:
+        parts.append("## Status updates")
+        parts.extend(f"- {item}" for item in statuses)
+        parts.append("")
+    if body:
+        parts.append("## Notes")
+        parts.append(body)
+        parts.append("")
+    if blockers:
+        parts.append("## Blockers")
+        parts.extend(f"- {item}" for item in blockers)
         parts.append("")
     if actions:
         parts.append("## Action items")
