@@ -7,7 +7,11 @@ with `:memory:` via `init_db`.
 
 from __future__ import annotations
 
+import logging
+
 import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 _conn: aiosqlite.Connection | None = None
 
@@ -78,13 +82,18 @@ async def init_db(path: str) -> aiosqlite.Connection:
         await conn.execute(stmt)
 
     # Lightweight ALTER для существующих БД, у которых ещё нет колонки workspace.
-    # IF NOT EXISTS для ADD COLUMN не поддерживается старыми SQLite — try/except.
+    # IF NOT EXISTS для ADD COLUMN поддержан только в SQLite 3.35+, поэтому
+    # точечный catch на "duplicate column name" — это норм, любая другая
+    # OperationalError (disk full, corruption) должна сорвать старт, а не
+    # молча пройти.
     try:
         await conn.execute(
             "ALTER TABLE drafts ADD COLUMN workspace TEXT NOT NULL DEFAULT 'personal'"
         )
-    except Exception:
-        pass
+    except aiosqlite.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+        logger.debug("workspace column already present, skipping ADD COLUMN")
 
     await conn.commit()
 
