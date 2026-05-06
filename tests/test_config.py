@@ -101,3 +101,53 @@ def test_database_id_buildin_returns_none_when_unconfigured(monkeypatch):
         s.database_id_for("NOTION_DB_TASK", provider="buildin", workspace_key="work")
         is None
     )
+
+
+# --- notion_token_for: per-WS токен с fallback на глобальный ---
+
+
+def test_notion_token_for_uses_per_ws(monkeypatch):
+    monkeypatch.setenv("NOTION_TOKEN_WORK", "work-tok")
+    s = _make(NOTION_TOKEN="global-tok")
+    assert s.notion_token_for("work") == "work-tok"
+
+
+def test_notion_token_for_falls_back_to_global(monkeypatch):
+    monkeypatch.delenv("NOTION_TOKEN_PERSONAL", raising=False)
+    s = _make(NOTION_TOKEN="global-tok")
+    assert s.notion_token_for("personal") == "global-tok"
+
+
+def test_notion_token_for_returns_none_when_neither(monkeypatch):
+    monkeypatch.delenv("NOTION_TOKEN_PERSONAL", raising=False)
+    s = _make()
+    assert s.notion_token_for("personal") is None
+
+
+# --- notion_enabled: per-WS токенов достаточно без глобального ---
+
+
+def test_notion_enabled_per_ws_token_only(monkeypatch):
+    # Никаких NOTION_TOKEN, только per-WS + parent-page.
+    monkeypatch.delenv("NOTION_TOKEN", raising=False)
+    monkeypatch.setenv("NOTION_TOKEN_AI_PATH", "ai-tok")
+    monkeypatch.setenv("NOTION_PARENT_PAGE_AI_PATH", "page-id")
+    s = _make()
+    assert s.notion_enabled is True
+
+
+def test_notion_enabled_false_without_any_token(monkeypatch):
+    monkeypatch.delenv("NOTION_TOKEN", raising=False)
+    for ws in ("PERSONAL", "WORK", "FAMILY", "GROWTH", "AI_PATH"):
+        monkeypatch.delenv(f"NOTION_TOKEN_{ws}", raising=False)
+    s = _make(NOTION_DATABASE_ID="db")  # есть DB, но нет токена
+    assert s.notion_enabled is False
+
+
+# --- NOTES_PROVIDER default ---
+
+
+def test_notes_provider_defaults_to_notion(monkeypatch):
+    monkeypatch.delenv("NOTES_PROVIDER", raising=False)
+    s = _make()
+    assert s.NOTES_PROVIDER == "notion"

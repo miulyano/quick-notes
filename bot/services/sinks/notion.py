@@ -1,24 +1,29 @@
-"""Notion sink. Per-(workspace × type) DB routing + lazy auto-create.
+"""Notion sink. Per-(workspace × type) DB routing + lazy two-step auto-create.
 
-Real path (NOTION_TOKEN + minimum one resolvable DB) создаёт страницу в
-DB-таргете для пары (draft.workspace, draft.note_type). Резолв через
-`_notion_resolver.resolve_or_create`:
+Real path (хотя бы один токен + хотя бы один resolvable DB или parent-page)
+создаёт страницу в DB-таргете для пары (draft.workspace, draft.note_type).
+Резолв через `_notion_resolver.resolve_or_create`:
 
   cache (notion_dbs table) → NOTION_DB_<WS>_<TYPE> → NOTION_DB_<TYPE>
                           → NOTION_DATABASE_ID
                           → auto-create под NOTION_PARENT_PAGE_<WS>
+                            (two-step: wrapper-page → child DB)
+
+Auto-create зеркалит структуру Buildin: parent-page → 📝 Заметки → DB.
 
 Setup the user must do (see README):
-- One Internal Integration in Notion → token in NOTION_TOKEN.
+- Internal Integration в Notion → token в NOTION_TOKEN.
+  Если бот-воркспейсы лежат в разных Notion workspaces — задать
+  NOTION_TOKEN_<WS> на каждый (имеет приоритет над глобальным NOTION_TOKEN).
 - Один из:
   - NOTION_DATABASE_ID (минимум — все типы и workspace'ы упадут туда), либо
   - per-type / per-(ws×type) env ids, либо
   - NOTION_PARENT_PAGE_<WS> на каждый используемый workspace —
-    бот создаст и закэширует DB при первом hit.
+    бот создаст wrapper-page + DB при первом hit и закэширует.
 - Каждая DB / parent-page должна быть расшарена с integration
-  (Connections → Add). Auto-created DB наследуют доступ от parent-page.
+  (Connections → Add). Auto-created wrapper/DB наследуют доступ от parent-page.
 
-Без NOTION_TOKEN/NOTION_DATABASE_ID → stub mode (logs only).
+Без любого токена/DB → stub mode (logs only).
 """
 
 from __future__ import annotations
@@ -50,32 +55,43 @@ class NotionSink:
     def __init__(self) -> None:
         self._failure_injector: Optional[FailureInjector] = None
         self._client_override: Any = None
-        self._client_real: Any = None
+        self._clients_real: dict[str, Any] = {}
 
     def set_failure_injector(self, fn: Optional[FailureInjector]) -> None:
         self._failure_injector = fn
 
     def set_client(self, client: Any) -> None:
-        """Test hook: inject a stand-in for `notion_client.AsyncClient`."""
+        """Test hook: inject a stand-in for `notion_client.AsyncClient`.
+
+        Один override-клиент покрывает все воркспейсы (тестам всё равно)."""
         self._client_override = client
 
     async def close(self) -> None:
-        """Закрыть notion_client.AsyncClient при graceful shutdown."""
-        if self._client_real is not None:
+        """Закрыть все notion_client.AsyncClient при graceful shutdown."""
+        for ws, client in list(self._clients_real.items()):
             try:
-                await self._client_real.aclose()
+                await client.aclose()
             except Exception:
-                logger.exception("notion client close failed")
-            self._client_real = None
+                logger.exception("notion client close failed ws=%s", ws)
+        self._clients_real.clear()
 
-    def _get_client(self) -> Any:
+    def _get_client(self, workspace_key: str) -> Any:
         if self._client_override is not None:
             return self._client_override
-        if self._client_real is None:
-            from notion_client import AsyncClient
+        cached = self._clients_real.get(workspace_key)
+        if cached is not None:
+            return cached
+        token = settings.notion_token_for(workspace_key)
+        if not token:
+            raise RuntimeError(
+                f"no Notion token for ws={workspace_key}: "
+                f"set NOTION_TOKEN_{workspace_key.upper()} or NOTION_TOKEN"
+            )
+        from notion_client import AsyncClient
 
-            self._client_real = AsyncClient(auth=settings.NOTION_TOKEN)
-        return self._client_real
+        client = AsyncClient(auth=token)
+        self._clients_real[workspace_key] = client
+        return client
 
     async def _create_page_stub(self, draft: Draft) -> str:
         page_id = f"stub-page-{uuid.uuid4().hex[:8]}"
@@ -91,8 +107,8 @@ class NotionSink:
 
     async def _create_page_real(self, draft: Draft) -> str:
         note_type = get_note_type(draft.note_type or "")
-        client = self._get_client()
         workspace_key = draft.workspace or "personal"
+        client = self._get_client(workspace_key)
 
         database_id = await resolve_or_create(workspace_key, note_type, client)
         if not database_id:

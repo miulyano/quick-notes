@@ -50,8 +50,69 @@ def _reset(monkeypatch):
 async def test_stub_when_no_token(fresh_db, monkeypatch):
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", None)
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", None)
+    # Per-WS токены тоже должны быть пусты для stub-режима.
+    for ws in ("PERSONAL", "WORK", "FAMILY", "GROWTH", "AI_PATH"):
+        monkeypatch.delenv(f"NOTION_TOKEN_{ws}", raising=False)
     page_id = await notion_client.create_page(_draft())
     assert page_id.startswith("stub-page-")
+
+
+async def test_per_workspace_token_used(fresh_db, monkeypatch):
+    """`_get_client(ws)` берёт NOTION_TOKEN_<WS>; разные ws → разные клиенты."""
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "global")
+    monkeypatch.setenv("NOTION_TOKEN_WORK", "work-token")
+    notion_client.set_client(None)  # снимаем override — используем настоящий путь
+    sink = notion_client.get_sink_instance()
+
+    captured: list[str] = []
+
+    class _FakeAsyncClient:
+        def __init__(self, *, auth):
+            captured.append(auth)
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr("notion_client.AsyncClient", _FakeAsyncClient)
+
+    sink._get_client("work")
+    sink._get_client("personal")
+    sink._get_client("work")  # повтор — кэш hit, без нового клиента
+
+    assert captured == ["work-token", "global"]
+    assert set(sink._clients_real.keys()) == {"work", "personal"}
+
+    await sink.close()
+    assert sink._clients_real == {}
+
+
+async def test_get_client_raises_when_no_token(fresh_db, monkeypatch):
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", None)
+    notion_client.set_client(None)
+    sink = notion_client.get_sink_instance()
+    with pytest.raises(RuntimeError, match="no Notion token for ws=work"):
+        sink._get_client("work")
+
+
+async def test_close_closes_all_per_ws_clients(fresh_db, monkeypatch):
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "g")
+    notion_client.set_client(None)
+    sink = notion_client.get_sink_instance()
+    closed: list[str] = []
+
+    class _FakeAsyncClient:
+        def __init__(self, *, auth):
+            self.auth = auth
+
+        async def aclose(self):
+            closed.append(self.auth)
+
+    monkeypatch.setattr("notion_client.AsyncClient", _FakeAsyncClient)
+    sink._get_client("work")
+    sink._get_client("personal")
+
+    await sink.close()
+    assert sorted(closed) == ["g", "g"]
 
 
 async def test_real_uses_default_db_when_no_per_type(fresh_db, monkeypatch):
@@ -189,7 +250,8 @@ async def test_truncates_excess_blocks(fresh_db, monkeypatch):
     assert len(blocks) == 5
 
 
-async def test_lazy_creates_db_when_only_parent_page_set(fresh_db, monkeypatch):
+async def test_lazy_two_step_create_when_only_parent_page_set(fresh_db, monkeypatch):
+    """Lazy auto-create: pages.create wrapper → databases.create DB → pages.create note."""
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "k")
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", None)
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DB_TASK", None)
@@ -197,18 +259,26 @@ async def test_lazy_creates_db_when_only_parent_page_set(fresh_db, monkeypatch):
 
     fake = MagicMock()
     fake.pages = MagicMock()
-    fake.pages.create = AsyncMock(return_value={"id": "page-id"})
+    # 1-й вызов pages.create — wrapper-page; 2-й — note-page внутри DB.
+    fake.pages.create = AsyncMock(side_effect=[{"id": "wrapper-uuid"}, {"id": "note-page-id"}])
     fake.databases = MagicMock()
     fake.databases.create = AsyncMock(return_value={"id": "auto-created-db"})
     notion_client.set_client(fake)
 
     await notion_client.create_page(_draft(note_type="task", workspace="work"))
 
-    # DB создалась через databases.create
+    # Wrapper создался под parent-page воркспейса.
+    wrapper_call = fake.pages.create.await_args_list[0]
+    assert wrapper_call.kwargs["parent"] == {"type": "page_id", "page_id": "parent-uuid"}
+
+    # DB создалась внутри wrapper.
     assert fake.databases.create.await_count == 1
-    # Page создалась в auto-created DB
-    parent = fake.pages.create.await_args.kwargs["parent"]
-    assert parent == {"database_id": "auto-created-db"}
+    db_call = fake.databases.create.await_args
+    assert db_call.kwargs["parent"] == {"type": "page_id", "page_id": "wrapper-uuid"}
+
+    # Note-page легла в auto-created DB.
+    note_call = fake.pages.create.await_args_list[1]
+    assert note_call.kwargs["parent"] == {"database_id": "auto-created-db"}
 
 
 async def test_lazy_create_caches_for_subsequent_calls(fresh_db, monkeypatch):
@@ -219,7 +289,10 @@ async def test_lazy_create_caches_for_subsequent_calls(fresh_db, monkeypatch):
 
     fake = MagicMock()
     fake.pages = MagicMock()
-    fake.pages.create = AsyncMock(return_value={"id": "page-id"})
+    # 1-й — wrapper-page (создаётся раз); 2-й, 3-й — note-page.
+    fake.pages.create = AsyncMock(
+        side_effect=[{"id": "wrapper"}, {"id": "n1"}, {"id": "n2"}]
+    )
     fake.databases = MagicMock()
     fake.databases.create = AsyncMock(return_value={"id": "cached-db"})
     notion_client.set_client(fake)
@@ -227,6 +300,8 @@ async def test_lazy_create_caches_for_subsequent_calls(fresh_db, monkeypatch):
     await notion_client.create_page(_draft(id="d1", note_type="note"))
     await notion_client.create_page(_draft(id="d2", note_type="note"))
 
-    # databases.create — только один раз; вторая заметка взяла из кэша.
+    # databases.create — только один раз; вторая заметка взяла DB из кэша,
+    # wrapper-page тоже не создавалась повторно.
     assert fake.databases.create.await_count == 1
-    assert fake.pages.create.await_count == 2
+    # 1 wrapper + 2 note pages = 3 вызова pages.create.
+    assert fake.pages.create.await_count == 3
