@@ -36,6 +36,18 @@ class ProcessedNote:
 _client_override: Any = None
 _client_real: Any = None
 
+OPENAI_TIMEOUT_SECS = 30.0
+OPENAI_MAX_RETRIES = 2
+
+
+class LLMError(RuntimeError):
+    """Domain-level wrapper for any OpenAI / JSON-parse failure.
+
+    Хендлеры ловят его и пишут draft.status=failed — пользователь видит ошибку
+    и может /retry. Стоит между сырым openai.* и handler-слоем, чтобы handler
+    не зависел от OpenAI-классов напрямую.
+    """
+
 
 def set_client(client: Any) -> None:
     """Test hook: inject a stand-in OpenAI client (must expose
@@ -51,8 +63,26 @@ def _get_client() -> Any:
     if _client_real is None:
         from openai import AsyncOpenAI
 
-        _client_real = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        _client_real = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=OPENAI_TIMEOUT_SECS,
+            max_retries=OPENAI_MAX_RETRIES,
+        )
     return _client_real
+
+
+async def close_client() -> None:
+    """Закрыть httpx-сессию OpenAI при graceful shutdown.
+
+    Idempotent: повторный вызов после close — no-op.
+    """
+    global _client_real
+    if _client_real is not None:
+        try:
+            await _client_real.close()
+        except Exception:
+            logger.exception("OpenAI client close failed")
+        _client_real = None
 
 
 def _build_system_prompt() -> str:
@@ -189,10 +219,24 @@ async def _process_stub(raw_text: str) -> ProcessedNote:
 
 
 async def process(raw_text: str) -> ProcessedNote:
-    if settings.openai_enabled:
-        try:
-            return await _process_real(raw_text)
-        except Exception:
-            logger.exception("OpenAI process failed, falling back to stub")
-            return await _process_stub(raw_text)
-    return await _process_stub(raw_text)
+    """Real path при openai_enabled — иначе stub (single 'note' type).
+
+    Real-path ошибки (network/timeout/rate-limit/невалидный JSON) пробрасываются
+    как LLMError. Молчаливого fallback на stub НЕТ: handler ставит draft.failed
+    и пользователь может /retry.
+    """
+    if not settings.openai_enabled:
+        return await _process_stub(raw_text)
+    try:
+        return await _process_real(raw_text)
+    except LLMError:
+        raise
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.exception("LLM response parse failed")
+        raise LLMError(f"LLM response parse failed: {exc}") from exc
+    except Exception as exc:
+        # OpenAI SDK throws openai.APIError / APITimeoutError / RateLimitError
+        # и пр. — мы их не импортируем, чтобы не плодить hard-зависимость на
+        # классы SDK; ловим широко, но с явным wrapping в LLMError.
+        logger.exception("OpenAI request failed")
+        raise LLMError(f"OpenAI request failed: {exc}") from exc
