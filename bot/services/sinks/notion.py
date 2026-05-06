@@ -89,7 +89,13 @@ class NotionSink:
             )
         from notion_client import AsyncClient
 
-        client = AsyncClient(auth=token)
+        # Pin Notion-Version to 2022-06-28: SDK 2.7.0+ defaults to 2025-09-03,
+        # which split databases→data_sources. Our auto-create payload still
+        # uses the legacy shape (`properties` directly on database), so the
+        # newer version drops them and creates a Name-only DB. See PR #20 /
+        # CHANGELOG entry for details. Migration to data_sources is a future
+        # feat task.
+        client = AsyncClient(auth=token, notion_version="2022-06-28")
         self._clients_real[workspace_key] = client
         return client
 
