@@ -20,7 +20,7 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
   в `## Status updates` / `## Notes`.
 - Дата встречи: для type=meeting / 1on1 LLM проставляет `properties.Date`
   (ISO) и добавляет `(YYYY-MM-DD)` в конце title. В system prompt
-  пробрасывается «Сегодня: <date>».
+  пробрасывается «Дата: <date>» (текущая, для интерпретации «сегодня»).
 - UI-переключатель kind=sync↔meeting для type=meeting драфта
   (callback `togglekind`). Метка `(sync)` рядом с типом в превью.
 - Колонка `extras_json` в таблице `drafts` — JSON LLM-extras (kind,

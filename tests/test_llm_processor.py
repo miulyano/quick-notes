@@ -279,7 +279,7 @@ def test_system_prompt_includes_today_date():
 
     prompt = llm_processor._build_system_prompt()
     today = _dt.date.today().isoformat()
-    assert f"Сегодня: {today}" in prompt
+    assert f"Дата: {today}" in prompt
 
 
 def test_system_prompt_instructs_meeting_date_in_title():
