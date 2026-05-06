@@ -1,8 +1,15 @@
 """Verify the durability contract: text in → draft persisted BEFORE LLM/preview."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
-from bot.handlers.inputs import handle_text
+from bot.handlers.inputs import (
+    PREVIEW_BODY_LIMIT,
+    PREVIEW_TRUNCATE_MARKER,
+    format_preview,
+    handle_text,
+    preview_keyboard,
+)
 from bot.storage import drafts
 
 
@@ -98,3 +105,50 @@ async def test_forward_text_marked_as_forward_kind(fresh_db, monkeypatch):
     # LLM saw the enriched text with the prefix, not the raw body.
     assert seen_inputs and seen_inputs[0].startswith("[Forwarded]")
     assert "forwarded text body" in seen_inputs[0]
+
+
+def test_preview_truncate_uses_explicit_marker():
+    body = "x" * (PREVIEW_BODY_LIMIT + 100)
+    out = format_preview("title", body, "note", "personal", None)
+    assert PREVIEW_TRUNCATE_MARKER in out
+    # Тело отрезано ровно по PREVIEW_BODY_LIMIT.
+    assert out.count("x") == PREVIEW_BODY_LIMIT
+
+
+def test_preview_no_truncate_when_under_limit():
+    body = "y" * 100
+    out = format_preview("title", body, "note", "personal", None)
+    assert PREVIEW_TRUNCATE_MARKER not in out
+
+
+def test_preview_meeting_kind_sync_label():
+    out = format_preview(
+        "Тема", "body", "meeting", "personal", json.dumps({"kind": "sync"})
+    )
+    assert "(sync)" in out
+
+
+def test_preview_meeting_default_no_kind_label():
+    out = format_preview(
+        "Тема", "body", "meeting", "personal", json.dumps({"kind": "meeting"})
+    )
+    assert "(sync)" not in out
+
+
+def test_preview_non_meeting_ignores_kind():
+    out = format_preview(
+        "Тема", "body", "note", "personal", json.dumps({"kind": "sync"})
+    )
+    assert "(sync)" not in out
+
+
+def test_preview_keyboard_meeting_has_kind_toggle():
+    kb = preview_keyboard("d1", show_kind_toggle=True)
+    callbacks = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert any(c.startswith("togglekind:") for c in callbacks)
+
+
+def test_preview_keyboard_default_no_kind_toggle():
+    kb = preview_keyboard("d1")
+    callbacks = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert not any(c.startswith("togglekind:") for c in callbacks)

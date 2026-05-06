@@ -77,30 +77,24 @@ def _render_meeting(body: str, extras: dict) -> str:
 
 
 def _render_sync(body: str, extras: dict) -> str:
-    statuses = extras.get("status_updates") or []
-    blockers = extras.get("blockers") or []
+    """Sync passthrough body + опциональный `## Action items` снизу.
+
+    LLM-промпт инструктирует положить весь иерархический контент (по людям/
+    зонам/темам) прямо в markdown_body через `### heading` + bullets. Шаблон
+    больше не разносит контент по `## Status updates` / `## Notes` (это давало
+    дубликаты). Если LLM выделил явные action_items отдельно — добавляем их
+    блоком снизу.
+    """
     actions = extras.get("action_items") or []
 
-    if not (statuses or blockers or actions):
-        return body
-
     parts: list[str] = []
-    if statuses:
-        parts.append("## Status updates")
-        parts.extend(f"- {item}" for item in statuses)
-        parts.append("")
     if body:
-        parts.append("## Notes")
         parts.append(body)
-        parts.append("")
-    if blockers:
-        parts.append("## Blockers")
-        parts.extend(f"- {item}" for item in blockers)
-        parts.append("")
     if actions:
+        if parts:
+            parts.append("")
         parts.append("## Action items")
         parts.extend(f"- [ ] {item}" for item in actions)
-
     return "\n".join(parts).strip()
 
 

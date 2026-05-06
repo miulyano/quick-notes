@@ -14,11 +14,28 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
   каждый бот-воркспейс лежит в своём Notion workspace со своим
   Internal Integration. Если задан — используется вместо глобального
   `NOTION_TOKEN`. Sink держит `AsyncClient` per-workspace в кэше.
+- Sync-meeting иерархия: для kind=sync LLM кладёт весь контент в
+  `markdown_body` через `### subheading` + bullets, сохраняя исходную
+  группировку (по людям/зонам/темам). Шаблон больше не дублирует контент
+  в `## Status updates` / `## Notes`.
+- Дата встречи: для type=meeting / 1on1 LLM проставляет `properties.Date`
+  (ISO) и добавляет `(YYYY-MM-DD)` в конце title. В system prompt
+  пробрасывается «Дата: <date>» (текущая, для интерпретации «сегодня»).
+- UI-переключатель kind=sync↔meeting для type=meeting драфта
+  (callback `togglekind`). Метка `(sync)` рядом с типом в превью.
+- Колонка `extras_json` в таблице `drafts` — JSON LLM-extras (kind,
+  action_items и т.п.) для use в превью и при последующих переключениях.
 
 ### Changed
 - `NOTES_PROVIDER` дефолт сменён с `buildin` на `notion`.
 - `settings.notion_enabled` принимает любой токен (глобальный или
   per-WS) — раньше требовал именно `NOTION_TOKEN`.
+- Шаблон `_render_sync` стал passthrough — иерархию строит LLM в body.
+  Старые structured-поля `extras.status_updates` / `extras.blockers` для
+  sync игнорируются (давали дубликаты). Для kind=meeting поведение без
+  изменений.
+- Preview body limit поднят 1500 → 3500 chars; маркер обрезания
+  `«…»` заменён на явное «— превью обрезано, в Notion уйдёт полный текст —».
 
 ## [0.12.0] – 2026-05-06
 

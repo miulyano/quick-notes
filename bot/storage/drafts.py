@@ -31,6 +31,7 @@ class Draft:
     created_at: int
     updated_at: int
     workspace: str = "personal"  # одно из workspaces.all_keys(); default = DEFAULT_WORKSPACE.
+    extras_json: Optional[str] = None  # JSON-сериализованный extras от LLM (kind, action_items и т.п.).
 
 
 def _row_to_draft(row) -> Draft:

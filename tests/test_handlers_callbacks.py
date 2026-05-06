@@ -1,3 +1,4 @@
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 from bot.handlers.callbacks import (
@@ -8,6 +9,7 @@ from bot.handlers.callbacks import (
     on_save,
     on_set_type,
     on_set_workspace,
+    on_toggle_kind,
 )
 from bot.storage import drafts, outbox
 
@@ -120,3 +122,47 @@ async def test_set_workspace_updates_draft(fresh_db):
     d = await drafts.get(draft_id)
     assert d.workspace == "work"
     cb.message.edit_text.assert_awaited()
+
+
+async def test_toggle_kind_flips_meeting_to_sync(fresh_db):
+    draft_id = await _mk_draft(note_type="meeting")
+    await drafts.update(draft_id, extras_json=json.dumps({"kind": "meeting"}))
+    cb = _cb(f"togglekind:{draft_id}")
+
+    await on_toggle_kind(cb)
+
+    d = await drafts.get(draft_id)
+    assert json.loads(d.extras_json)["kind"] == "sync"
+    cb.message.edit_text.assert_awaited()
+
+
+async def test_toggle_kind_flips_sync_to_meeting(fresh_db):
+    draft_id = await _mk_draft(note_type="meeting")
+    await drafts.update(draft_id, extras_json=json.dumps({"kind": "sync"}))
+    cb = _cb(f"togglekind:{draft_id}")
+
+    await on_toggle_kind(cb)
+
+    d = await drafts.get(draft_id)
+    assert json.loads(d.extras_json)["kind"] == "meeting"
+
+
+async def test_toggle_kind_default_meeting_when_no_extras(fresh_db):
+    draft_id = await _mk_draft(note_type="meeting")
+    cb = _cb(f"togglekind:{draft_id}")
+
+    await on_toggle_kind(cb)
+
+    d = await drafts.get(draft_id)
+    assert json.loads(d.extras_json)["kind"] == "sync"
+
+
+async def test_toggle_kind_rejects_non_meeting(fresh_db):
+    draft_id = await _mk_draft(note_type="note")
+    cb = _cb(f"togglekind:{draft_id}")
+
+    await on_toggle_kind(cb)
+
+    cb.answer.assert_awaited_with("Доступно только для митингов", show_alert=True)
+    d = await drafts.get(draft_id)
+    assert d.extras_json is None

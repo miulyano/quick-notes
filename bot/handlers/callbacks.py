@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from aiogram import F, Router
@@ -94,9 +95,15 @@ async def on_set_type(cb: CallbackQuery) -> None:
         try:
             await cb.message.edit_text(
                 format_preview(
-                    draft.title or "", draft.formatted or "", type_key, draft.workspace
+                    draft.title or "",
+                    draft.formatted or "",
+                    type_key,
+                    draft.workspace,
+                    draft.extras_json,
                 ),
-                reply_markup=preview_keyboard(draft_id),
+                reply_markup=preview_keyboard(
+                    draft_id, show_kind_toggle=type_key == "meeting"
+                ),
             )
         except Exception:
             pass
@@ -134,8 +141,11 @@ async def on_set_workspace(cb: CallbackQuery) -> None:
                     draft.formatted or "",
                     draft.note_type or "note",
                     ws_key,
+                    draft.extras_json,
                 ),
-                reply_markup=preview_keyboard(draft_id),
+                reply_markup=preview_keyboard(
+                    draft_id, show_kind_toggle=(draft.note_type or "") == "meeting"
+                ),
             )
         except Exception:
             pass
@@ -151,7 +161,59 @@ async def on_back(cb: CallbackQuery) -> None:
         return
     if cb.message is not None:
         try:
-            await cb.message.edit_reply_markup(reply_markup=preview_keyboard(draft_id))
+            await cb.message.edit_reply_markup(
+                reply_markup=preview_keyboard(
+                    draft_id, show_kind_toggle=(draft.note_type or "") == "meeting"
+                )
+            )
         except Exception:
             pass
     await cb.answer()
+
+
+@router.callback_query(F.data.startswith("togglekind:"))
+async def on_toggle_kind(cb: CallbackQuery) -> None:
+    """Переключает extras.kind sync↔meeting для type=meeting драфта.
+
+    Тело (`draft.formatted`) формирует LLM, шаблон `_render_sync` теперь
+    passthrough — переключение влияет только на label в превью и метаданные,
+    которые поедут в Notion (через property/будущие интеграции). Поэтому
+    повторного LLM-вызова делать не нужно.
+    """
+    draft_id = cb.data.split(":", 1)[1]
+    draft = await drafts.get(draft_id)
+    if draft is None:
+        await cb.answer("Черновик не найден", show_alert=True)
+        return
+    if (draft.note_type or "") != "meeting":
+        await cb.answer("Доступно только для митингов", show_alert=True)
+        return
+
+    try:
+        extras = json.loads(draft.extras_json) if draft.extras_json else {}
+    except (TypeError, ValueError):
+        extras = {}
+    if not isinstance(extras, dict):
+        extras = {}
+
+    current_kind = (extras.get("kind") or "meeting").lower()
+    new_kind = "meeting" if current_kind == "sync" else "sync"
+    extras["kind"] = new_kind
+    extras_json = json.dumps(extras, ensure_ascii=False)
+    await drafts.update(draft_id, extras_json=extras_json)
+
+    if cb.message is not None:
+        try:
+            await cb.message.edit_text(
+                format_preview(
+                    draft.title or "",
+                    draft.formatted or "",
+                    draft.note_type or "note",
+                    draft.workspace,
+                    extras_json,
+                ),
+                reply_markup=preview_keyboard(draft_id, show_kind_toggle=True),
+            )
+        except Exception:
+            pass
+    await cb.answer(f"Kind: {new_kind}")

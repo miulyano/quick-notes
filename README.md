@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.13.0-blue)
+![version](https://img.shields.io/badge/version-0.14.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -43,14 +43,20 @@ DB-properties — это **реф-пример**, не «единственны�
   work / family / growth / ai_path), извлекает properties (Status,
   Priority, DueDate, Tags, Attendees, …) и форматирует тело как markdown
   под template типа. Для `meeting` отдельно различает регулярные синки
-  команды через
-  `extras.kind="sync"` — рендер ставит секции Status updates / Blockers /
-  Action items вместо классических Agenda / Decisions. Для `task`
-  описание задачи (контекст, мотивация) пишется в `markdown_body` перед
-  `## Чек-лист`. Без `OPENAI_API_KEY` — stub-fallback (тип `note`, workspace
-  `personal`, тело = исходник).
+  команды через `extras.kind="sync"`: для sync LLM кладёт всю иерархию
+  (по людям/зонам/темам) прямо в `markdown_body` через `### subheading` +
+  bullets — шаблон passthrough, без дублирующих секций. Для классического
+  `meeting` (kind=meeting) — секции Agenda / Decisions / Action items.
+  Для `task` описание задачи (контекст, мотивация) пишется в `markdown_body`
+  перед `## Чек-лист`. Для `meeting` / `1on1` LLM проставляет дату в
+  `properties.Date` и в title в скобках `(YYYY-MM-DD)`. Без
+  `OPENAI_API_KEY` — stub-fallback (тип `note`, workspace `personal`,
+  тело = исходник).
 - Превью с кнопками: `💾 Save` / `✖ Cancel` сверху, `🔁 Type` /
-  `📁 Workspace` снизу. Workspace и тип можно переопределить вручную.
+  `📁 Workspace` ниже. Для type=meeting добавляется ряд
+  `🔄 Sync ↔ Meeting` для ручного переключения подвида; рядом с типом
+  показывается метка `(sync)` если kind=sync. Workspace и тип можно
+  переопределить вручную.
 - На Save — кладёт в outbox-очередь, фоновой воркер вызывает API провайдера
   (Buildin или Notion в зависимости от `NOTES_PROVIDER`).
 - **Routing**: per-(workspace × type) для Buildin (`BUILDIN_DB_<WS>_<TYPE>` →

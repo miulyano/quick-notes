@@ -7,6 +7,7 @@ since the model already sees the input when picking the type.
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
 from dataclasses import dataclass, field
@@ -85,6 +86,10 @@ async def close_client() -> None:
         _client_real = None
 
 
+def _today_iso() -> str:
+    return _dt.date.today().isoformat()
+
+
 def _build_system_prompt() -> str:
     type_blocks = []
     for t in TYPES:
@@ -103,6 +108,7 @@ def _build_system_prompt() -> str:
     return (
         "Ты помогаешь пользователю превращать сырые заметки (текст, транскрипт "
         "голосового, форвард) в структурированную страницу.\n\n"
+        f"Дата: {_today_iso()}.\n\n"
         "Сделай за один проход:\n"
         "1. КЛАССИФИЦИРУЙ запись по одному из типов ниже.\n"
         "2. ВЫБЕРИ workspace, в который сохранять (см. список ниже).\n"
@@ -122,11 +128,21 @@ def _build_system_prompt() -> str:
         "- type=meeting: подвид `sync` — это регулярная встреча команды для сверки "
         "статусов, выявления блокеров, назначения задач. Триггеры: «синк», «standup», "
         "«daily», «weekly», «status», «команда собралась», «обсудили статусы», «блокеры». "
-        "Если запись выглядит как sync — верни `type=meeting` + `extras.kind=\"sync\"` "
-        "+ заполни `extras.status_updates` (по человеку или зоне), `extras.blockers` "
-        "(что мешает), `extras.action_items` (кто что делает). Поля agenda/decisions "
-        "для sync пропускай. Обычный митинг (kick-off, обсуждение, ретро) — "
-        "`extras.kind=\"meeting\"` (default), используй agenda/decisions/action_items.\n\n"
+        "Если запись выглядит как sync — верни `type=meeting` + `extras.kind=\"sync\"`. "
+        "ВЕСЬ контент для sync положи в `markdown_body`, **сохраняя исходную "
+        "иерархию**: если в тексте есть видимая группировка (по людям, зонам, "
+        "проектам, темам) — отрази её как `### Заголовок группы` + список "
+        "буллетов `- пункт` под каждым заголовком. НЕ схлопывай несколько буллетов "
+        "одной группы в одну строку через запятую — каждый исходный пункт отдельной "
+        "строкой буллета. Если структуры нет — простой плоский список буллетов или "
+        "абзацы. Для sync поля `extras.agenda/decisions/status_updates/blockers` "
+        "НЕ используй — они только дублируют body. Можно заполнить `extras.action_items` "
+        "(чисто действия, кто что делает), если они явно выделяются.\n"
+        "  Обычный митинг (kick-off, обсуждение, ретро) — `extras.kind=\"meeting\"` "
+        "(default), используй agenda/decisions/action_items.\n"
+        "- type=meeting и type=1on1: для `properties.Date` используй ISO-дату встречи "
+        "из текста, иначе сегодняшнюю (см. «Дата» выше). В `title` ОБЯЗАТЕЛЬНО "
+        "добавь дату в скобках в конце: `«Тема (YYYY-MM-DD)»`. Общая длина title ≤ 80.\n\n"
         "Верни СТРОГО JSON со схемой:\n"
         "{\n"
         '  "type": "<один из ключей типов>",\n'
@@ -139,8 +155,6 @@ def _build_system_prompt() -> str:
         '    "agenda": ["..."],           // для type=meeting kind=meeting\n'
         '    "decisions": ["..."],        // для type=meeting kind=meeting\n'
         '    "action_items": ["..."],     // для type=meeting (оба kind)\n'
-        '    "status_updates": ["..."],   // для type=meeting kind=sync\n'
-        '    "blockers": ["..."],         // для type=meeting kind=sync\n'
         '    "topics": ["..."],           // для type=1on1\n'
         '    "follow_ups": ["..."]        // для type=1on1\n'
         '  },\n'

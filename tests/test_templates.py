@@ -52,27 +52,46 @@ def test_meeting_minimal():
     assert render("meeting", "kick-off chat") == "kick-off chat"
 
 
-def test_meeting_sync_kind():
+def test_meeting_sync_passthrough_body():
+    body = "### Алиса\n- auth готов\n- миграция\n\n### Боб\n- блокер на фронте"
+    out = render("meeting", body, {"kind": "sync"})
+    # Шаблон ничего не дописывает — иерархию строит LLM в body.
+    assert out == body
+    # Старые секционные заголовки больше не появляются.
+    assert "## Status updates" not in out
+    assert "## Notes" not in out
+    assert "## Blockers" not in out
+
+
+def test_meeting_sync_with_action_items():
+    body = "### Алиса\n- auth готов\n\n### Боб\n- миграция"
     out = render(
         "meeting",
-        "Команда быстро прошлась по статусам.",
+        body,
+        {"kind": "sync", "action_items": ["Пингануть фронт", "Снять блокер"]},
+    )
+    assert body in out
+    assert out.index("Боб") < out.index("## Action items")
+    assert "- [ ] Пингануть фронт" in out
+    assert "- [ ] Снять блокер" in out
+    assert "## Status updates" not in out
+    assert "## Notes" not in out
+
+
+def test_meeting_sync_legacy_status_updates_ignored():
+    """Старая форма structured extras для sync больше не рендерится — body главный."""
+    out = render(
+        "meeting",
+        "Тело синка",
         {
             "kind": "sync",
-            "status_updates": ["Алиса: auth готов", "Боб: миграция в проде"],
-            "blockers": ["Жду фронт"],
-            "action_items": ["Пингануть фронт", "Снять блокер"],
+            "status_updates": ["Алиса: auth"],
+            "blockers": ["Жду"],
         },
     )
-    assert "## Status updates" in out
-    assert "- Алиса: auth готов" in out
-    assert "## Blockers" in out
-    assert "- Жду фронт" in out
-    assert "## Action items" in out
-    assert "- [ ] Пингануть фронт" in out
-    # Sync шаблон не использует agenda/decisions/discussion.
-    assert "## Agenda" not in out
-    assert "## Decisions" not in out
-    assert "## Discussion" not in out
+    assert out == "Тело синка"
+    assert "Status updates" not in out
+    assert "Blockers" not in out
 
 
 def test_meeting_sync_minimal_falls_back_to_body():
