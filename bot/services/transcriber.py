@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 FractionCallback = Callable[[float], Awaitable[None]]
 _client_override: object | None = None
 
+# Жёсткий потолок на полный цикл poll. Реальная транскрипция аудио до часа
+# укладывается в 5–10 минут; всё, что дольше — почти всегда залип AssemblyAI.
+# Без этого таймаута while-True крутится бесконечно, ProgressReporter тоже.
+MAX_POLL_SECONDS = 600.0
+POLL_INTERVAL_SECS = 3.0
+
 
 def set_client_override(client) -> None:
     """Test hook: replace the underlying SDK transcriber with a stand-in."""
@@ -96,6 +102,53 @@ def _utterances_from_response(transcript) -> list[Utterance]:
     return out
 
 
+async def _poll_for_completion(
+    *,
+    fetch,
+    on_fraction: Optional[FractionCallback],
+    completed_statuses: tuple,
+    queued_status,
+    processing_status,
+    now_fn=None,
+    sleep_fn=None,
+    max_poll_seconds: float = MAX_POLL_SECONDS,
+    poll_interval: float = POLL_INTERVAL_SECS,
+):
+    """Чистый poll-цикл: вытащен из _run_assemblyai для тестируемости.
+
+    fetch — корутина без аргументов, возвращает raw-объект со полем .status.
+    Зависимости инжектируются (now_fn / sleep_fn), чтобы тест мог
+    подменить часы и не спать реально.
+    """
+    loop = asyncio.get_event_loop()
+    now_fn = now_fn or loop.time
+    sleep_fn = sleep_fn or asyncio.sleep
+
+    poll_start = now_fn()
+    processing_start: Optional[float] = None
+    while True:
+        raw = await fetch()
+        if raw.status == queued_status:
+            frac = 0.05
+        elif raw.status == processing_status:
+            if processing_start is None:
+                processing_start = now_fn()
+            frac = min(0.90, 0.10 + (now_fn() - processing_start) / 120.0)
+        elif raw.status in completed_statuses:
+            return raw
+        else:
+            frac = 0.5
+
+        if on_fraction:
+            await on_fraction(frac)
+
+        if now_fn() - poll_start > max_poll_seconds:
+            raise RuntimeError(
+                f"AssemblyAI timeout: status={raw.status} after {max_poll_seconds:.0f}s"
+            )
+        await sleep_fn(poll_interval)
+
+
 async def _run_assemblyai(
     audio_path: str,
     on_fraction: Optional[FractionCallback] = None,
@@ -112,24 +165,16 @@ async def _run_assemblyai(
     transcript_id = transcript._impl.transcript_id
     http_client = transcript._client.http_client
 
-    processing_start: Optional[float] = None
-    while True:
-        raw = await asyncio.to_thread(aai_api.get_transcript, http_client, transcript_id)
-        if raw.status == aai.TranscriptStatus.queued:
-            frac = 0.05
-        elif raw.status == aai.TranscriptStatus.processing:
-            if processing_start is None:
-                processing_start = asyncio.get_event_loop().time()
-            elapsed = asyncio.get_event_loop().time() - processing_start
-            frac = min(0.90, 0.10 + elapsed / 120.0)
-        elif raw.status in (aai.TranscriptStatus.completed, aai.TranscriptStatus.error):
-            break
-        else:
-            frac = 0.5
+    async def fetch():
+        return await asyncio.to_thread(aai_api.get_transcript, http_client, transcript_id)
 
-        if on_fraction:
-            await on_fraction(frac)
-        await asyncio.sleep(3.0)
+    raw = await _poll_for_completion(
+        fetch=fetch,
+        on_fraction=on_fraction,
+        completed_statuses=(aai.TranscriptStatus.completed, aai.TranscriptStatus.error),
+        queued_status=aai.TranscriptStatus.queued,
+        processing_status=aai.TranscriptStatus.processing,
+    )
 
     if raw.status == aai.TranscriptStatus.error:
         raise RuntimeError(f"AssemblyAI error: {raw.error}")
