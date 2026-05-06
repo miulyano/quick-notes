@@ -5,6 +5,12 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 ## [Unreleased]
 
 ### Added
+- ✏️ Edit для черновика: правка title и body до Save без повторного
+  LLM-вызова. Кнопка `✏️ Edit` в превью → подменю `📝 Title` / `📄 Body`.
+  Новый текст приходит одним сообщением и заменяет соответствующее поле,
+  превью перерисовывается. Новые статусы draft `awaiting_edit_title` /
+  `awaiting_edit_body`.
+- `/cancel` — выход из режима правки в обычное превью.
 - Notion lazy two-step auto-create: под `NOTION_PARENT_PAGE_<WS>` бот
   сначала создаёт wrapper-page с plural-title типа («📝 Заметки»,
   «✅ Задачи», …), затем full-page DB внутри неё. Структура зеркалит

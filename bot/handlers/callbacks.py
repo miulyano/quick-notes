@@ -28,6 +28,19 @@ def _types_keyboard(draft_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _edit_keyboard(draft_id: str) -> InlineKeyboardMarkup:
+    """Submenu для выбора поля правки."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📝 Title", callback_data=f"editfld:{draft_id}:title"),
+                InlineKeyboardButton(text="📄 Body", callback_data=f"editfld:{draft_id}:body"),
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back:{draft_id}")],
+        ]
+    )
+
+
 def _workspaces_keyboard(draft_id: str) -> InlineKeyboardMarkup:
     """Per-workspace chooser. 2 columns × N rows + back row."""
     buttons = [
@@ -166,6 +179,52 @@ async def on_back(cb: CallbackQuery) -> None:
                     draft_id, show_kind_toggle=(draft.note_type or "") == "meeting"
                 )
             )
+        except Exception:
+            pass
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("edit:"))
+async def on_edit(cb: CallbackQuery) -> None:
+    """Показывает подменю выбора поля правки (title/body)."""
+    draft_id = cb.data.split(":", 1)[1]
+    draft = await drafts.get(draft_id)
+    if draft is None:
+        await cb.answer("Черновик не найден", show_alert=True)
+        return
+    if cb.message is not None:
+        try:
+            await cb.message.edit_reply_markup(reply_markup=_edit_keyboard(draft_id))
+        except Exception:
+            pass
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("editfld:"))
+async def on_edit_field(cb: CallbackQuery) -> None:
+    """Переводит draft в awaiting_edit_<field>, снимает кнопки, шлёт prompt."""
+    _, draft_id, field = cb.data.split(":", 2)
+    if field not in ("title", "body"):
+        await cb.answer("Неизвестное поле", show_alert=True)
+        return
+    draft = await drafts.get(draft_id)
+    if draft is None:
+        await cb.answer("Черновик не найден", show_alert=True)
+        return
+    new_status = "awaiting_edit_title" if field == "title" else "awaiting_edit_body"
+    await drafts.update(draft_id, status=new_status)
+    if cb.message is not None:
+        try:
+            await cb.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        prompt = (
+            "✏️ Пришли новый заголовок одним сообщением. /cancel — отмена."
+            if field == "title"
+            else "✏️ Пришли новое тело заметки одним сообщением. /cancel — отмена."
+        )
+        try:
+            await cb.message.answer(prompt)
         except Exception:
             pass
     await cb.answer()

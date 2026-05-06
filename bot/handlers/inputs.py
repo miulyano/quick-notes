@@ -32,6 +32,9 @@ def preview_keyboard(draft_id: str, *, show_kind_toggle: bool = False) -> Inline
             InlineKeyboardButton(text="🔁 Type", callback_data=f"chtype:{draft_id}"),
             InlineKeyboardButton(text="📁 Workspace", callback_data=f"chws:{draft_id}"),
         ],
+        [
+            InlineKeyboardButton(text="✏️ Edit", callback_data=f"edit:{draft_id}"),
+        ],
     ]
     if show_kind_toggle:
         rows.append(

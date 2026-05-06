@@ -1,13 +1,14 @@
-"""/start, /help, /list, /retry."""
+"""/start, /help, /list, /retry, /cancel."""
 
 from __future__ import annotations
 
 import logging
 
-from aiogram import Router
+from aiogram import Bot, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
+from bot.handlers.inputs import format_preview, preview_keyboard
 from bot.storage import drafts, outbox
 
 router = Router()
@@ -21,7 +22,8 @@ async def cmd_start(message: Message) -> None:
         "подтверждения.\n\n"
         "Команды:\n"
         "/list — незавершённые черновики\n"
-        "/retry — повторить сохранение упавших"
+        "/retry — повторить сохранение упавших\n"
+        "/cancel — выйти из режима правки черновика"
     )
 
 
@@ -54,3 +56,33 @@ async def cmd_retry(message: Message) -> None:
         await drafts.update(d.id, status="saving", error=None)
         await outbox.enqueue(d.id)
     await message.answer(f"Перезапущено: {len(failed)}")
+
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message, bot: Bot) -> None:
+    """Выходит из режима правки draft и восстанавливает обычное превью."""
+    draft = await drafts.find_awaiting_edit(message.from_user.id)
+    if draft is None:
+        await message.answer("Нечего отменять.")
+        return
+    await drafts.update(draft.id, status="awaiting_confirm")
+    if draft.preview_msg_id is not None:
+        try:
+            await bot.edit_message_text(
+                format_preview(
+                    draft.title or "",
+                    draft.formatted or "",
+                    draft.note_type or "note",
+                    draft.workspace,
+                    draft.extras_json,
+                ),
+                chat_id=draft.chat_id,
+                message_id=draft.preview_msg_id,
+                reply_markup=preview_keyboard(
+                    draft.id,
+                    show_kind_toggle=(draft.note_type or "") == "meeting",
+                ),
+            )
+        except Exception:
+            logger.exception("failed to restore preview after /cancel for draft=%s", draft.id)
+    await message.answer("↩️ Правка отменена.")

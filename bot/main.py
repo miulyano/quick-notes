@@ -10,7 +10,7 @@ from aiogram.enums import ParseMode
 from bot.config import settings
 from bot.domain.note_types import TYPES
 from bot.domain.workspaces import WORKSPACES
-from bot.handlers import callbacks, commands, documents, inputs, voice
+from bot.handlers import callbacks, commands, documents, edit, inputs, voice
 from bot.middlewares.auth import AuthMiddleware
 from bot.services import llm_processor
 from bot.services.sinks import buildin as buildin_sink
@@ -152,6 +152,7 @@ async def main() -> None:
     dp.include_router(callbacks.router)
     dp.include_router(voice.router)
     dp.include_router(documents.router)
+    dp.include_router(edit.router)
     dp.include_router(inputs.router)
 
     on_saved, on_failed = _make_save_callbacks(bot)
