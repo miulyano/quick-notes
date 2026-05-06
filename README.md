@@ -1,23 +1,32 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.10.0-blue)
+![version](https://img.shields.io/badge/version-0.11.0-blue)
 
-Telegram-бот для персональных заметок: принимает текст, голос, видео, форварды;
-транскрибирует медиа, классифицирует через GPT-4o, сохраняет готовые страницы в
+Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
+форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
+классифицирует через GPT-4o, сохраняет готовые страницы в
 [Buildin](https://buildin.ai) (по умолчанию) или [Notion](https://www.notion.so/) —
 переключатель `NOTES_PROVIDER=buildin|notion`.
 
 > Архитектурный план — `~/.claude/plans/notes-bot-giggly-lemur.md`. Эволюция —
 > отдельные ветки и Conventional-Commits-PR в `main` (см. `AGENTS.md`).
 
-## Что умеет (на 0.8.0)
+## Что умеет (на 0.11.0)
 
-- Принимает **текст, голосовые, аудио, видео, видео-кружочки, форварды**.
+- Принимает **текст, голосовые, аудио, видео, видео-кружочки, документы,
+  форварды**.
 - Голос/аудио/видео транскрибируется через **AssemblyAI Universal-2** с
   диаризацией спикеров. Сырой транскрипт остаётся в БД (промежуточный шаг),
   в провайдер уходит только готовая заметка после LLM. Без
   `ASSEMBLYAI_API_KEY` — голосовые отключены, бот отвечает «транскрибация
   выключена».
+- **Документы** (`txt`, `md`, `csv`, `pdf`, `docx`) — прямой upload или форвард.
+  Текст извлекается локально (`pypdf` для PDF, `python-docx` для DOCX, stdlib
+  для остальных) и идёт в тот же LLM-pipeline. Лимит — 20 МБ (Telegram bot API).
+  Длинные файлы (>40k символов после извлечения) проходят **map-reduce**:
+  бьются на куски, каждый кусок суммаризуется отдельным LLM-вызовом, итоговая
+  склейка классифицируется как обычно. Зашифрованные/сканированные PDF без
+  текстового слоя помечают draft `failed` с понятным сообщением.
 - Для форвардов извлекаются метаданные (автор, канал, дата, подпись,
   оригинальный message_id) и подаются в LLM как контекст-prefix
   `[Forwarded] От: …; Когда: …`. Draft помечается `kind=forward`.
@@ -170,6 +179,7 @@ Notion поставьте `NOTES_PROVIDER=notion`.
 - notion-client — Python SDK Notion API (legacy fallback провайдер)
 - openai — GPT-4o classify+format одним вызовом
 - assemblyai — Universal-2 транскрибация + диаризация
+- pypdf, python-docx — извлечение текста из PDF/DOCX
 - pytest + pytest-asyncio — тесты
 - Docker + docker-compose
 
@@ -182,12 +192,14 @@ bot/
 ├── handlers/
 │   ├── inputs.py          # text → draft → LLM → preview
 │   ├── voice.py           # voice/audio/video/video_note → download → transcribe → LLM → preview
+│   ├── documents.py       # document (txt/md/csv/pdf/docx) → download → extract → LLM → preview
 │   ├── callbacks.py       # Save / Type / Cancel + клавиатура выбора типа
 │   └── commands.py        # /start /help /list /retry
 ├── middlewares/
 │   └── auth.py            # whitelist Telegram user IDs
 ├── services/
-│   ├── llm_processor.py   # GPT-4o classify+format (один вызов) + stub fallback
+│   ├── llm_processor.py   # GPT-4o classify+format (один вызов) + map-reduce process_long + stub fallback
+│   ├── doc_extractor.py   # txt/md/csv/pdf/docx → plain text (pypdf, python-docx, stdlib)
 │   ├── notion_client.py   # compat-shim → sinks/notion.py
 │   ├── transcriber.py     # AssemblyAI Universal-2 + диаризация (multi-speaker labels)
 │   └── sinks/             # провайдеры хранилища заметок
@@ -275,6 +287,12 @@ pytest -v
   durability при ошибках.
 - `test_forward.py` — извлечение метаданных всех типов forward_origin
   (User/HiddenUser/Chat/Channel) + format_prefix + enrich.
+- `test_doc_extractor.py` — txt/md/csv/pdf/docx happy-paths, пустой PDF →
+  `EmptyDocumentError`, бинарь без mime → `UnsupportedDocumentError`,
+  расширение приоритетнее mime.
+- `test_handlers_document.py` — happy path с моками download/extract/LLM,
+  oversized/audio/unsupported reject, durability при ошибках, forwarded →
+  `kind=forward` + enrich-prefix.
 
 ## Настройка `.env`
 

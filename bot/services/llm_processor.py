@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from bot.config import settings
 from bot.domain.note_types import DEFAULT_TYPE, TYPES, all_keys
@@ -240,3 +240,120 @@ async def process(raw_text: str) -> ProcessedNote:
         # классы SDK; ловим широко, но с явным wrapping в LLMError.
         logger.exception("OpenAI request failed")
         raise LLMError(f"OpenAI request failed: {exc}") from exc
+
+
+# Map-reduce path: документы могут давать тексты, не помещающиеся в один LLM-промпт
+# с запасом на system prompt и JSON-ответ. Порог взят с большим запасом — gpt-4o
+# имеет 128k tokens context, 40k символов ≈ 12k токенов.
+LONG_TEXT_THRESHOLD_CHARS = 40_000
+SUMMARY_CHUNK_CHARS = 30_000
+SUMMARY_MAX_TOKENS = 1500
+
+
+async def process_long(
+    raw_text: str,
+    *,
+    on_fraction: Optional[Callable[[float], Awaitable[None]]] = None,
+) -> ProcessedNote:
+    """Single-shot `process` для коротких текстов; map-reduce для длинных.
+
+    Длинные тексты бьются на куски, каждый кусок сжимается отдельным LLM-вызовом
+    (plain-text summary с упором на agenda / decisions / action items / blockers),
+    итоговая склейка прогоняется через обычный `process` для классификации.
+    """
+    if len(raw_text) <= LONG_TEXT_THRESHOLD_CHARS or not settings.openai_enabled:
+        result = await process(raw_text)
+        if on_fraction:
+            await on_fraction(1.0)
+        return result
+
+    chunks = _split_for_summary(raw_text, SUMMARY_CHUNK_CHARS)
+    summaries: list[str] = []
+    total_steps = len(chunks) + 1
+    for i, chunk in enumerate(chunks, 1):
+        summaries.append(await _summarize_chunk(chunk, idx=i, total=len(chunks)))
+        if on_fraction:
+            await on_fraction(i / total_steps)
+
+    consolidated = "\n\n".join(
+        f"## Section {i}\n{s}" for i, s in enumerate(summaries, 1)
+    )
+    result = await process(consolidated)
+    if on_fraction:
+        await on_fraction(1.0)
+    return result
+
+
+def _split_for_summary(text: str, chunk_size: int) -> list[str]:
+    """Бьём по \\n\\n, если кусок слишком большой — по \\n, в крайнем случае — по символам."""
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks: list[str] = []
+    buf = ""
+    for paragraph in text.split("\n\n"):
+        candidate = paragraph if not buf else f"{buf}\n\n{paragraph}"
+        if len(candidate) <= chunk_size:
+            buf = candidate
+            continue
+        if buf:
+            chunks.append(buf)
+            buf = ""
+        if len(paragraph) <= chunk_size:
+            buf = paragraph
+        else:
+            chunks.extend(_split_by_lines(paragraph, chunk_size))
+    if buf:
+        chunks.append(buf)
+    return chunks
+
+
+def _split_by_lines(text: str, chunk_size: int) -> list[str]:
+    chunks: list[str] = []
+    buf = ""
+    for line in text.split("\n"):
+        candidate = line if not buf else f"{buf}\n{line}"
+        if len(candidate) <= chunk_size:
+            buf = candidate
+            continue
+        if buf:
+            chunks.append(buf)
+            buf = ""
+        if len(line) <= chunk_size:
+            buf = line
+        else:
+            for i in range(0, len(line), chunk_size):
+                chunks.append(line[i : i + chunk_size])
+    if buf:
+        chunks.append(buf)
+    return chunks
+
+
+async def _summarize_chunk(chunk: str, *, idx: int, total: int) -> str:
+    client = _get_client()
+    system_prompt = (
+        f"Перед тобой часть {idx}/{total} большого документа "
+        "(транскрипт встречи, агенда, повестка или подобное). "
+        "Сожми в маркированный список ключевых пунктов на русском. "
+        "Сохрани: agenda items, decisions, action items (кто/что/когда), "
+        "status updates, blockers, прямые цитаты решений. Не выдумывай факты. "
+        "Не добавляй мета-комментариев — только содержание."
+    )
+    try:
+        response = await client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            temperature=0.2,
+            max_tokens=SUMMARY_MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": chunk},
+            ],
+        )
+    except Exception as exc:
+        logger.exception("OpenAI summary chunk %s/%s failed", idx, total)
+        raise LLMError(f"OpenAI summary failed: {exc}") from exc
+
+    content = (response.choices[0].message.content or "").strip()
+    if not content:
+        raise LLMError(f"empty summary for chunk {idx}/{total}")
+    return content
