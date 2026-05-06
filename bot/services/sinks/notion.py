@@ -1,17 +1,24 @@
-"""Notion sink. Per-type DB routing + per-type properties.
+"""Notion sink. Per-(workspace × type) DB routing + lazy auto-create.
 
-Real path (NOTION_TOKEN + a database id) creates a page in the type-specific
-database, with properties built from `draft.properties` JSON via the
-NoteType registry.
+Real path (NOTION_TOKEN + minimum one resolvable DB) создаёт страницу в
+DB-таргете для пары (draft.workspace, draft.note_type). Резолв через
+`_notion_resolver.resolve_or_create`:
+
+  cache (notion_dbs table) → NOTION_DB_<WS>_<TYPE> → NOTION_DB_<TYPE>
+                          → NOTION_DATABASE_ID
+                          → auto-create под NOTION_PARENT_PAGE_<WS>
 
 Setup the user must do (see README):
 - One Internal Integration in Notion → token in NOTION_TOKEN.
-- For each type used: a database with the schema described in the type's
-  NotionProperty list, shared with the integration.
-- Per-type ids in env (NOTION_DB_TASK, NOTION_DB_IDEA, ...). Types without an
-  override fall back to NOTION_DATABASE_ID.
+- Один из:
+  - NOTION_DATABASE_ID (минимум — все типы и workspace'ы упадут туда), либо
+  - per-type / per-(ws×type) env ids, либо
+  - NOTION_PARENT_PAGE_<WS> на каждый используемый workspace —
+    бот создаст и закэширует DB при первом hit.
+- Каждая DB / parent-page должна быть расшарена с integration
+  (Connections → Add). Auto-created DB наследуют доступ от parent-page.
 
-Without NOTION_TOKEN/NOTION_DATABASE_ID → stub mode (logs only).
+Без NOTION_TOKEN/NOTION_DATABASE_ID → stub mode (logs only).
 """
 
 from __future__ import annotations
@@ -23,6 +30,7 @@ from typing import Any, Optional
 from bot.config import settings
 from bot.domain.note_types import get as get_note_type
 from bot.services.sinks import FailureInjector
+from bot.services.sinks._notion_resolver import resolve_or_create
 from bot.services.sinks._properties import build_properties as _build_properties
 from bot.storage.drafts import Draft
 from bot.utils.md_blocks import markdown_to_blocks
@@ -83,11 +91,16 @@ class NotionSink:
 
     async def _create_page_real(self, draft: Draft) -> str:
         note_type = get_note_type(draft.note_type or "")
-        database_id = settings.database_id_for(note_type.db_env, provider="notion")
+        client = self._get_client()
+        workspace_key = draft.workspace or "personal"
+
+        database_id = await resolve_or_create(workspace_key, note_type, client)
         if not database_id:
             raise RuntimeError(
-                f"no Notion database configured for type={note_type.key} "
-                f"(env={note_type.db_env} or NOTION_DATABASE_ID)"
+                f"no Notion database for ws={workspace_key} type={note_type.key} "
+                f"and NOTION_PARENT_PAGE_{workspace_key.upper()} not set; "
+                f"set NOTION_DATABASE_ID, NOTION_DB_{note_type.key.upper()}, "
+                f"or NOTION_PARENT_PAGE_{workspace_key.upper()} to unblock"
             )
 
         body = draft.formatted or ""
@@ -103,7 +116,6 @@ class NotionSink:
 
         properties = build_properties(note_type, draft)
 
-        client = self._get_client()
         response = await client.pages.create(
             parent={"database_id": database_id},
             properties=properties,

@@ -4,6 +4,37 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.12.0] – 2026-05-06
+
+### Added
+- Notion lazy auto-create DB per (workspace × type). При первом сохранении
+  в пару, для которой DB не задана и нет fallback-а, бот создаёт
+  full-page DB под `NOTION_PARENT_PAGE_<WS>` страницей со схемой типа
+  из реестра (`note_types.py`) и кэширует id в новой SQLite-таблице
+  `notion_dbs`. Структура растёт по факту использования —
+  пустые комбинации не плодятся, ручное создание 35 баз не требуется.
+  Параллель Buildin per-(workspace × type) routing'у — теперь у двух
+  провайдеров одинаковая иерархия резолва.
+- Env-переменные `NOTION_PARENT_PAGE_<WS>` (5 штук под пять
+  workspace-ключей) для парент-страниц lazy create.
+- `bot/storage/notion_dbs.py` — CRUD кэша.
+- `bot/services/sinks/_notion_resolver.py` — резолвер с цепочкой
+  cache → per-(ws×type) env → per-type env → `NOTION_DATABASE_ID` →
+  auto-create.
+
+### Changed
+- `settings.database_id_for(provider="notion", workspace_key=...)` —
+  добавлен per-(ws × type) уровень: `NOTION_DB_<WS>_<TYPE>` имеет высший
+  приоритет среди env-переменных Notion. Старая цепочка
+  `NOTION_DB_<TYPE>` → `NOTION_DATABASE_ID` остаётся как нижние уровни.
+- `settings.notion_enabled` — раньше требовал и `NOTION_TOKEN`, и
+  `NOTION_DATABASE_ID`. Теперь токена + любого источника DB id
+  (per-type / per-(ws×type) / parent-page для lazy create) достаточно.
+- `NotionSink._create_page_real` — резолв через
+  `_notion_resolver.resolve_or_create` вместо прямого
+  `database_id_for`. На отсутствии конфигурации сообщение ошибки теперь
+  включает workspace и подсказку какой env задать.
+
 ## [0.11.1] – 2026-05-06
 
 ### Added
