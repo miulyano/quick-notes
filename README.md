@@ -8,8 +8,13 @@ Telegram-бот для персональных заметок: принимае
 [Buildin](https://buildin.ai) (по умолчанию) или [Notion](https://www.notion.so/) —
 переключатель `NOTES_PROVIDER=buildin|notion`.
 
-> Архитектурный план — `~/.claude/plans/notes-bot-giggly-lemur.md`. Эволюция —
-> отдельные ветки и Conventional-Commits-PR в `main` (см. `AGENTS.md`).
+Бот заточен под личный workflow автора: набор workspace'ов, типов заметок и
+DB-properties — это **реф-пример**, не «единственный правильный дефолт».
+Если форкаешь под себя — отредактируй `bot/domain/workspaces.py` и
+`bot/domain/note_types.py` (см. раздел «[Под себя](#под-себя)» ниже).
+
+> Эволюция: отдельные ветки и Conventional-Commits-PR в `main`
+> (см. `AGENTS.md`).
 
 ## Что умеет (на 0.11.0)
 
@@ -31,11 +36,14 @@ Telegram-бот для персональных заметок: принимае
   оригинальный message_id) и подаются в LLM как контекст-prefix
   `[Forwarded] От: …; Когда: …`. Draft помечается `kind=forward`.
 - Создаёт черновик в SQLite **до** любой обработки (durability-контракт).
-- **Один GPT-4o-вызов**: классифицирует тип (note / task / idea / meeting /
-  1on1 / work / personal), **выбирает workspace** (personal / work / family /
-  growth / ai_path), извлекает properties (Status, Priority, DueDate, Tags,
-  Attendees, …) и форматирует тело как markdown под template типа. Для
-  `meeting` отдельно различает регулярные синки команды через
+- **Один GPT-4o-вызов**: классифицирует **тип заметки** и **workspace**
+  (наборы заданы в реестрах `bot/domain/note_types.py` и
+  `bot/domain/workspaces.py` — в текущем реф-сетапе 7 типов: note / task /
+  idea / meeting / 1on1 / work / personal, и 5 workspace'ов: personal /
+  work / family / growth / ai_path), извлекает properties (Status,
+  Priority, DueDate, Tags, Attendees, …) и форматирует тело как markdown
+  под template типа. Для `meeting` отдельно различает регулярные синки
+  команды через
   `extras.kind="sync"` — рендер ставит секции Status updates / Blockers /
   Action items вместо классических Agenda / Decisions. Для `task`
   описание задачи (контекст, мотивация) пишется в `markdown_body` перед
@@ -71,9 +79,12 @@ Telegram-бот для персональных заметок: принимае
 
 ### 2. Spaces (workspace'ы)
 
-Бот поддерживает 5 workspace'ов: `personal`, `work`, `family`, `growth`,
-`ai_path`. Для каждого нужен отдельный Buildin space. Создайте space'ы
-руками, разрешите для них integration, скопируйте UUID:
+В реф-сетапе настроены 5 workspace'ов: `personal`, `work`, `family`,
+`growth`, `ai_path` (см. `bot/domain/workspaces.py` — там же поля
+`label`, `description`, `space_env`). Если форкаешь под себя — поправь
+реестр и env-vars из таблицы ниже соответственно. Под каждый workspace
+нужен отдельный Buildin space. Создайте space'ы руками, разрешите для
+них integration, скопируйте UUID:
 
 | Workspace | Env var |
 |---|---|
@@ -86,8 +97,9 @@ Telegram-бот для персональных заметок: принимае
 ### 3. Базы (databases)
 
 Внутри каждого space скрипт создаёт отдельную **страницу-обёртку** на каждый
-тип заметки. Title берётся из plural-формы (`📝 Заметки`, `✅ Задачи`, `💡 Идеи`,
-`🤝 Митинги`, `👥 1:1`, `💼 Рабочее`, `🌱 Личное`) — без префикса воркспейса,
+тип заметки. Title берётся из plural-формы реестра типов (в реф-сетапе:
+`📝 Заметки`, `✅ Задачи`, `💡 Идеи`, `🤝 Митинги`, `👥 1:1`, `💼 Рабочее`,
+`🌱 Личное` — см. `_PLURAL_TITLES` в скрипте) — без префикса воркспейса,
 так как имя space'а уже задаёт контекст. Внутри страницы — full-page DB
 с тем же title. Структура в Buildin:
 
@@ -139,6 +151,10 @@ Notion поставьте `NOTES_PROVIDER=notion`.
 шарится с интеграцией. Тип, для которого `NOTION_DB_<TYPE>` пуст, попадает
 в базу из `NOTION_DATABASE_ID` (fallback).
 
+Schema ниже — реф-пример из текущего `bot/domain/note_types.py`. Если
+редактируешь реестр под свой setup, эта таблица перестанет соответствовать
+твоей конфигурации:
+
 | Тип | Env var | Required properties (имя — kind) |
 |---|---|---|
 | `note` | `NOTION_DB_NOTE` | Name (title), Tags (multi_select) |
@@ -169,25 +185,74 @@ Notion поставьте `NOTES_PROVIDER=notion`.
 (тип `note`, body = raw input). Модель меняется через `OPENAI_MODEL`
 (по умолчанию `gpt-4o`).
 
+## Под себя
+
+Реестры в `bot/domain/` — это setup автора. Бот рассчитан на то, что
+форкер их отредактирует под свой workflow. Файлы захардкожены не из-за
+архитектурного ограничения, а потому что Python-dataclass'ы — самая
+понятная форма для одного человека, который сам себе админ.
+
+**Шаг 1.** `bot/domain/workspaces.py` — добавить/удалить/переименовать
+записи в `WORKSPACES`. Поля `Workspace`:
+- `key` — ASCII-friendly id (попадает в env-имена и LLM-ответ).
+- `label` — UI-строка для TG-кнопок (RU/EN/любой).
+- `description` — подсказка для LLM, когда выбрать этот workspace.
+- `space_env` — имя env-переменной для UUID Buildin space'а.
+
+**Шаг 2.** `bot/domain/note_types.py` — записи в `TYPES`. Поля `NoteType`:
+- `key`, `label`, `description` (как у workspace).
+- `db_env` — имя env-переменной для per-type Notion DB id (например
+  `NOTION_DB_TASK`). Для Buildin берётся суффикс
+  (`NOTION_DB_TASK` → `BUILDIN_DB_<WS>_TASK`).
+- `template_id` — ключ ветки в `domain/templates.py`.
+- `properties` — список колонок DB. Каждая `NotionProperty`: `name`
+  (case-sensitive имя колонки), `kind` (`title|rich_text|select|multi_select|date|checkbox`),
+  `llm_hint` (что LLM кладёт), `select_options` (для select/multi_select —
+  фиксированный список значений; нужен setup-скрипту).
+
+**Шаг 3.** Если меняется `template_id` — добавить ветку в
+`bot/domain/templates.py` (рендер markdown под этот тип).
+
+**Шаг 4.** Адаптировать тесты: `tests/test_workspaces.py` и
+`tests/test_note_types.py` (а при правке templates — частично
+`tests/test_templates.py`) проверяют конкретный набор ключей. После
+кастомизации обновить тесты под новый набор — это разрешённое исключение
+(см. `CLAUDE.md`, «исключения, когда тест разрешено менять»).
+
+**Шаг 5.** Перегенерировать DB: удалить устаревшие
+`BUILDIN_DB_<WS>_<TYPE>` из `.env`, удалить старые DB в Buildin UI,
+запустить:
+```bash
+source .venv/bin/activate
+python -m scripts.setup_buildin_dbs >> .env
+```
+Скрипт читает реестры — создаст DB под обновлённый набор.
+
+**Шаг 6.** Прогнать `pytest -v` — всё должно быть зелёным.
+
+Бот всегда дописывает в каждую DB колонку `CreatedAt` (date) автоматически —
+объявлять её в `properties` не нужно.
+
 ## Стек
 
 - Python 3.11+
 - aiogram 3.x — Telegram bot framework
-- pydantic-settings — config через `.env`
+- pydantic-settings + python-dotenv — config через `.env`
 - aiosqlite — async-драйвер SQLite
 - httpx — async HTTP-клиент для Buildin API (тонкий клиент по openapi)
 - notion-client — Python SDK Notion API (legacy fallback провайдер)
 - openai — GPT-4o classify+format одним вызовом
 - assemblyai — Universal-2 транскрибация + диаризация
 - pypdf, python-docx — извлечение текста из PDF/DOCX
-- pytest + pytest-asyncio — тесты
+- pytest + pytest-asyncio — тесты (`reportlab` — dev-only, для генерации
+  тестовых PDF в `test_doc_extractor.py`)
 - Docker + docker-compose
 
 ## Структура проекта
 
 ```
 bot/
-├── main.py                # entry: init_db → recover_stuck → outbox worker → polling
+├── main.py                # entry: init_db → buildin_health_check → recover_stuck → outbox worker → polling
 ├── config.py              # pydantic settings
 ├── handlers/
 │   ├── inputs.py          # text → draft → LLM → preview
@@ -204,6 +269,7 @@ bot/
 │   ├── transcriber.py     # AssemblyAI Universal-2 + диаризация (multi-speaker labels)
 │   └── sinks/             # провайдеры хранилища заметок
 │       ├── __init__.py    # Sink Protocol
+│       ├── _properties.py # общий property builder (shape="notion"|"buildin")
 │       ├── notion.py      # NotionSink — pages.create через notion-client
 │       ├── buildin.py     # BuildinSink — httpx + Buildin API (default)
 │       └── factory.py     # get_sink() по NOTES_PROVIDER
@@ -254,6 +320,25 @@ cp .env.example .env
 docker compose up --build
 ```
 
+`docker-compose.yml` ставит `restart: unless-stopped`, лимит памяти `220m`
+и persistent volume `./data` → `/app/data` (SQLite-файл живёт между
+рестартами).
+
+### VPS
+
+```bash
+ssh user@host
+git clone <repo-url> notes && cd notes
+cp .env.example .env  # заполнить BOT_TOKEN, ALLOWED_USER_IDS, BUILDIN_TOKEN, ...
+docker compose up -d --build
+docker compose logs -f bot
+```
+
+После апдейтов:
+```bash
+git pull && docker compose up -d --build
+```
+
 ## Тесты
 
 ```bash
@@ -261,13 +346,15 @@ source .venv/bin/activate
 pytest -v
 ```
 
-133+ тестов на момент 0.8.0:
+179 тестов на момент 0.11.0 (23 файла):
 - `test_config.py`, `test_auth.py` — конфиг и middleware.
 - `test_drafts.py`, `test_outbox.py`, `test_idempotency.py`, `test_save_tx.py` —
   storage-слой (in-memory SQLite через фикстуру `fresh_db`).
 - `test_outbox_worker.py` — happy path, retry, idempotency после крэша,
   max_attempts.
 - `test_note_types.py`, `test_templates.py`, `test_workspaces.py` — реестры.
+  ⚠️ Эти тесты завязаны на конкретный реф-сетап и требуют обновления при
+  кастомизации (см. раздел [Под себя](#под-себя)).
 - `test_llm_processor.py` — stub + real path с моком OpenAI (включая
   workspace classification + fallback на ошибке и неизвестный тип/workspace).
 - `test_handlers_inputs.py`, `test_handlers_callbacks.py` — UX-логика
@@ -282,6 +369,9 @@ pytest -v
 - `test_workspace_routing.py` — `settings.database_id_for()` для обоих
   провайдеров.
 - `test_sink_factory.py` — `get_sink()` переключение по `NOTES_PROVIDER`.
+- `test_sinks_properties.py` — общий property builder для обоих shape'ов
+  (`shape="notion"|"buildin"`): title/select/multi_select/date/checkbox,
+  пустые значения, неизвестные kind.
 - `test_transcriber.py` — диаризация render-with-speakers, disabled-flag.
 - `test_handlers_voice.py` — happy path с моками download/transcribe/LLM,
   durability при ошибках.

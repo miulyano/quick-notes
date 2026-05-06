@@ -1,10 +1,29 @@
-"""Workspace registry — куда (в какой Buildin space) сохранять заметку.
+"""Workspace registry — пример из реф-сетапа автора. Отредактируй под свой workflow.
+
+Это **личный пример**, а не «правильный» дефолт. Бот рассчитан на то, что
+форкер заменит этот список на свой — workspace'ы захардкожены здесь, чтобы
+LLM знала, куда классифицировать заметку, и чтобы скрипт setup_buildin_dbs
+знал, какие DB создавать.
 
 Каждый workspace соответствует отдельному Buildin space. Type определяет
 schema/template, workspace — место. DB IDs хранятся в env как
 `BUILDIN_DB_<WS>_<TYPE>` (см. config.database_id_for).
 
-Реестр захардкожен — добавление нового workspace требует ровно 1 строки + env.
+Поля Workspace:
+- key:         ASCII-friendly id, попадает в env-имена и в LLM-ответ.
+- label:       UI-строка (RU/EN/любой) для TG-кнопок и preview.
+- description: подсказка для LLM, когда выбрать этот workspace.
+- space_env:   имя env-var, в которой лежит UUID Buildin space'а.
+
+Как адаптировать:
+1. Добавить/удалить/переименовать записи в `WORKSPACES` ниже.
+2. Прописать соответствующие BUILDIN_SPACE_<KEY.upper()> в `.env`.
+3. Запустить `python -m scripts.setup_buildin_dbs >> .env` — создаст DB
+   под обновлённый набор.
+4. Адаптировать `tests/test_workspaces.py` (он проверяет конкретный набор
+   ключей — это разрешённое исключение, см. CLAUDE.md).
+
+Подробнее — раздел «Под себя» в README.md.
 """
 
 from __future__ import annotations

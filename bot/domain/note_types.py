@@ -1,20 +1,43 @@
-"""Note type registry — single source of truth for the LLM classifier and Notion sink.
+"""Note type registry — пример из реф-сетапа автора. Отредактируй под свой workflow.
 
-Each type defines:
-- `key`         — canonical id stored in `drafts.note_type` and exchanged with the LLM.
-- `label`       — human-friendly RU label shown in TG buttons.
-- `description` — guidance for the LLM on when to pick this type.
-- `db_env`      — env var name for the per-type Notion database id.
-                  Empty / unset → falls back to `NOTION_DATABASE_ID`.
-- `properties`  — list of NotionProperty objects describing what the LLM should
-                  extract and how to map it onto Notion DB columns.
-- `template_id` — key used by `domain.templates.render` to format the markdown body.
+Это **личный пример** того, как один человек разложил свой поток заметок:
+свободные note, задачи, идеи, митинги, 1:1, рабочее/личное. Бот рассчитан
+на то, что форкер заменит набор на свой — типы захардкожены здесь, чтобы
+LLM знала, во что классифицировать, и чтобы setup_buildin_dbs знал, какие
+DB и с какими колонками создавать.
 
-Adding a new type:
-  1. Append a `NoteType(...)` to TYPES below.
-  2. Add a matching template branch in `domain.templates`.
-  3. (If multi-DB setup) create the Notion database, share with integration,
-     populate `<TYPE_KEY>_DB` env var.
+NoteType описывает один тип заметки:
+- `key`         — canonical id в `drafts.note_type` и в LLM-ответе.
+- `label`       — UI-строка для TG-кнопок (RU/EN/любой).
+- `description` — подсказка для LLM, когда выбрать этот тип.
+- `db_env`      — имя env-переменной для per-type Notion DB id (например
+                  `NOTION_DB_TASK`). Пусто/unset → fallback на
+                  `NOTION_DATABASE_ID`. Для Buildin берётся суффикс
+                  (`NOTION_DB_TASK` → `BUILDIN_DB_<WS>_TASK`).
+- `template_id` — ключ ветки в `domain.templates.render`.
+- `properties`  — список колонок DB и hint'ов, что LLM туда кладёт.
+
+NotionProperty:
+- `name`           — case-sensitive имя колонки DB. Используется и при
+                     записи в Buildin/Notion, и при автосоздании DB
+                     setup-скриптом.
+- `kind`           — title | rich_text | select | multi_select | date | checkbox.
+- `llm_hint`       — что LLM кладёт в это поле (попадает в prompt).
+- `select_options` — для kind=select|multi_select фиксированный список
+                     значений; setup_buildin_dbs использует его для
+                     PropertySchemaSelect.options. Бот всегда дописывает
+                     колонку `CreatedAt` (date) — её не нужно объявлять здесь.
+
+Как адаптировать:
+  1. Добавить/удалить/переименовать `NoteType(...)` в `TYPES`.
+  2. Если меняется `template_id` — добавить ветку в `domain.templates`.
+  3. Если меняется список properties — пересоздать DB через
+     `python -m scripts.setup_buildin_dbs` (или вручную для Notion и положить
+     id в `NOTION_DB_<TYPE>` / `BUILDIN_DB_<WS>_<TYPE>`).
+  4. Адаптировать `tests/test_note_types.py` и (при изменении templates)
+     `tests/test_templates.py` — это разрешённое исключение (см. CLAUDE.md).
+
+Подробнее — раздел «Под себя» в README.md.
 """
 
 from __future__ import annotations

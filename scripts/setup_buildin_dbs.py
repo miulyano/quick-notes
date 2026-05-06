@@ -1,5 +1,9 @@
 """Создание Buildin databases для каждой пары (workspace × note_type).
 
+Скрипт читает `bot/domain/workspaces.py` и `bot/domain/note_types.py` —
+если ты их отредактировал под свой setup, скрипт автоматически создаст DB
+под обновлённый набор (см. раздел «Под себя» в README.md).
+
 Логика:
 1. Читает реестры (workspaces, note_types) и для каждой пары проверяет env
    `BUILDIN_DB_<WS>_<TYPE>`. Если задан — пропускает (мап на существующую DB).
