@@ -34,7 +34,8 @@ _MIGRATIONS = [
         error           TEXT,
         created_at      INTEGER NOT NULL,
         updated_at      INTEGER NOT NULL,
-        workspace       TEXT NOT NULL DEFAULT 'personal'
+        workspace       TEXT NOT NULL DEFAULT 'personal',
+        extras_json     TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status)",
@@ -103,6 +104,13 @@ async def init_db(path: str) -> aiosqlite.Connection:
         if "duplicate column name" not in str(exc).lower():
             raise
         logger.debug("workspace column already present, skipping ADD COLUMN")
+
+    try:
+        await conn.execute("ALTER TABLE drafts ADD COLUMN extras_json TEXT")
+    except aiosqlite.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+        logger.debug("extras_json column already present, skipping ADD COLUMN")
 
     await conn.commit()
 

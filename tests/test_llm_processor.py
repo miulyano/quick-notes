@@ -272,3 +272,26 @@ async def test_split_for_summary_hard_slice_long_line():
     chunks = llm_processor._split_for_summary(text, 500)
     assert all(len(c) <= 500 for c in chunks)
     assert "".join(chunks) == text
+
+
+def test_system_prompt_includes_today_date():
+    import datetime as _dt
+
+    prompt = llm_processor._build_system_prompt()
+    today = _dt.date.today().isoformat()
+    assert f"Сегодня: {today}" in prompt
+
+
+def test_system_prompt_instructs_meeting_date_in_title():
+    prompt = llm_processor._build_system_prompt()
+    # Гайд по дате в title должен явно быть в промте.
+    assert "(YYYY-MM-DD)" in prompt
+    assert "properties.Date" in prompt
+
+
+def test_system_prompt_sync_keeps_hierarchy_in_body():
+    prompt = llm_processor._build_system_prompt()
+    assert "сохраняя исходную иерархию" in prompt
+    # Старые structured-поля для sync убраны из инструкций.
+    assert "extras.status_updates" not in prompt
+    assert "extras.blockers" not in prompt
