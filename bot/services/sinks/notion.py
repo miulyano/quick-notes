@@ -16,15 +16,14 @@ Without NOTION_TOKEN/NOTION_DATABASE_ID → stub mode (logs only).
 
 from __future__ import annotations
 
-import datetime as _dt
-import json
 import logging
 import uuid
 from typing import Any, Optional
 
 from bot.config import settings
-from bot.domain.note_types import NoteType, get as get_note_type
+from bot.domain.note_types import get as get_note_type
 from bot.services.sinks import FailureInjector
+from bot.services.sinks._properties import build_properties as _build_properties
 from bot.storage.drafts import Draft
 from bot.utils.md_blocks import markdown_to_blocks
 
@@ -33,63 +32,10 @@ logger = logging.getLogger(__name__)
 MAX_BLOCKS_PER_PAGE = 100  # Notion API: pages.create accepts up to 100 children.
 
 
-def _now_iso() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).isoformat()
-
-
-def _wrap_property(kind: str, value: Any) -> Optional[dict]:
-    """Notion's typed property payload. Returns None to omit the property."""
-    if value is None:
-        return None
-    if kind == "title":
-        return {"title": [{"text": {"content": str(value)}}]}
-    if kind == "rich_text":
-        return {"rich_text": [{"text": {"content": str(value)}}]}
-    if kind == "select":
-        return {"select": {"name": str(value)}}
-    if kind == "multi_select":
-        if not isinstance(value, list):
-            value = [value]
-        return {"multi_select": [{"name": str(v)} for v in value if v]}
-    if kind == "date":
-        return {"date": {"start": str(value)}}
-    if kind == "checkbox":
-        return {"checkbox": bool(value)}
-    logger.warning("unknown property kind=%s value=%r", kind, value)
-    return None
-
-
-def build_properties(note_type: NoteType, draft: Draft) -> dict[str, dict]:
-    """Construct Notion properties payload from draft.properties JSON.
-
-    Title is filled from draft.title if the LLM didn't include it explicitly.
-    `CreatedAt` is appended as a server-side timestamp regardless of type.
-    """
-    extracted: dict[str, Any] = {}
-    if draft.properties:
-        try:
-            extracted = json.loads(draft.properties)
-        except Exception:
-            logger.warning("draft.properties not valid JSON: %r", draft.properties)
-            extracted = {}
-
-    out: dict[str, dict] = {}
-    has_title = False
-    for prop in note_type.properties:
-        value = extracted.get(prop.name)
-        if prop.kind == "title":
-            has_title = True
-            if not value:
-                value = draft.title or "Без названия"
-        wrapped = _wrap_property(prop.kind, value)
-        if wrapped is not None:
-            out[prop.name] = wrapped
-
-    if not has_title:
-        out["Name"] = _wrap_property("title", draft.title or "Без названия")
-
-    out["CreatedAt"] = {"date": {"start": _now_iso()}}
-    return out
+def build_properties(note_type, draft):
+    """Backwards-compatible wrapper. Используется тестами; новый код зовёт
+    `_properties.build_properties` напрямую с shape="notion"."""
+    return _build_properties(note_type, draft, shape="notion")
 
 
 class NotionSink:

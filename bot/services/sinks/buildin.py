@@ -12,18 +12,18 @@ Buildin API структурно близок к Notion (`/v1/databases`, `/v1/p
 
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 
 from bot.config import settings
-from bot.domain.note_types import NoteType, get as get_note_type
+from bot.domain.note_types import get as get_note_type
 from bot.domain.workspaces import DEFAULT_WORKSPACE
 from bot.services.sinks import FailureInjector
+from bot.services.sinks._properties import build_properties as _build_properties
 from bot.storage.drafts import Draft
 from bot.utils.md_blocks import markdown_to_blocks_buildin
 
@@ -34,70 +34,10 @@ MAX_BLOCKS_PER_REQUEST = 100  # `maxItems` в openapi для children в pages.c
 DEFAULT_TIMEOUT = 30.0
 
 
-def _now_iso() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).isoformat()
-
-
-def _rich_text(value: str) -> list[dict]:
-    return [{"type": "text", "text": {"content": value}}]
-
-
-def _wrap_property(kind: str, value: Any, *, options: tuple[str, ...] = ()) -> Optional[dict]:
-    """Buildin-shape property value: type-tagged.
-
-    Returns None — пропустить property из payload.
-    """
-    if value is None:
-        return None
-    if kind == "title":
-        return {"type": "title", "title": _rich_text(str(value))}
-    if kind == "rich_text":
-        return {"type": "rich_text", "rich_text": _rich_text(str(value))}
-    if kind == "select":
-        return {"type": "select", "select": {"name": str(value)}}
-    if kind == "multi_select":
-        if not isinstance(value, list):
-            value = [value]
-        return {
-            "type": "multi_select",
-            "multi_select": [{"name": str(v)} for v in value if v],
-        }
-    if kind == "date":
-        return {"type": "date", "date": {"start": str(value)}}
-    if kind == "checkbox":
-        return {"type": "checkbox", "checkbox": bool(value)}
-    logger.warning("unknown property kind=%s value=%r", kind, value)
-    return None
-
-
-def build_properties(note_type: NoteType, draft: Draft) -> dict[str, dict]:
-    """Аналог Notion build_properties, но в Buildin-shape. Title fallback +
-    автоматическое добавление CreatedAt."""
-    extracted: dict[str, Any] = {}
-    if draft.properties:
-        try:
-            extracted = json.loads(draft.properties)
-        except Exception:
-            logger.warning("draft.properties not valid JSON: %r", draft.properties)
-            extracted = {}
-
-    out: dict[str, dict] = {}
-    has_title = False
-    for prop in note_type.properties:
-        value = extracted.get(prop.name)
-        if prop.kind == "title":
-            has_title = True
-            if not value:
-                value = draft.title or "Без названия"
-        wrapped = _wrap_property(prop.kind, value, options=prop.select_options)
-        if wrapped is not None:
-            out[prop.name] = wrapped
-
-    if not has_title:
-        out["Name"] = _wrap_property("title", draft.title or "Без названия")
-
-    out["CreatedAt"] = {"type": "date", "date": {"start": _now_iso()}}
-    return out
+def build_properties(note_type, draft):
+    """Backwards-compatible wrapper. Используется тестами; новый код зовёт
+    `_properties.build_properties` напрямую с shape="buildin"."""
+    return _build_properties(note_type, draft, shape="buildin")
 
 
 class BuildinError(RuntimeError):
