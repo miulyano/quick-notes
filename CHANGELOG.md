@@ -4,6 +4,22 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.11.1] – 2026-05-06
+
+### Added
+- Раздел «VPS (Ubuntu 22.04 / 24.04)» в README — пошаговая установка
+  Docker, деплой, бэкап SQLite, мониторинг через healthchecks.io,
+  обновление и troubleshooting.
+- `scripts/backup_db.sh` — online-backup SQLite через `sqlite3 .backup`
+  + `gzip` + ротация по `KEEP_DAYS` (default 14). Конфиг через env
+  vars `APP_DIR`, `BACKUP_DIR`, `KEEP_DAYS`.
+
+### Changed
+- `docker-compose.yml`: лимит памяти `220m` → `512m` (для документов
+  через map-reduce). Добавлен healthcheck (`SELECT 1` к SQLite, intervals
+  60s) и ротация логов (10 МБ × 5 файлов) — `docker logs` больше не
+  раздуется на годы работы.
+
 ## [0.11.0] – 2026-05-06
 
 ### Added
