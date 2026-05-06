@@ -12,7 +12,9 @@ from bot.domain.note_types import TYPES
 from bot.domain.workspaces import WORKSPACES
 from bot.handlers import callbacks, commands, inputs, voice
 from bot.middlewares.auth import AuthMiddleware
+from bot.services import llm_processor
 from bot.services.sinks import buildin as buildin_sink
+from bot.services.sinks import notion as notion_sink
 from bot.storage import db, drafts
 from bot.storage.drafts import Draft
 from bot.workers import outbox_worker
@@ -21,6 +23,10 @@ from bot.workers import outbox_worker
 logger = logging.getLogger(__name__)
 
 STUCK_SAVING_THRESHOLD_SECS = 300  # 5 minutes
+
+# Сколько ждать завершения текущего outbox-attempt при shutdown. Чуть больше
+# httpx-таймаута (30s), чтобы успеть докрутить in-flight запрос.
+WORKER_SHUTDOWN_TIMEOUT_SECS = 35.0
 
 
 async def _buildin_health_check() -> None:
@@ -162,8 +168,21 @@ async def main() -> None:
         )
     finally:
         stop_event.set()
-        with suppress(asyncio.CancelledError):
-            await worker_task
+        try:
+            await asyncio.wait_for(worker_task, timeout=WORKER_SHUTDOWN_TIMEOUT_SECS)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "outbox worker не завершился за %ss — отменяем in-flight",
+                WORKER_SHUTDOWN_TIMEOUT_SECS,
+            )
+            worker_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker_task
+        except asyncio.CancelledError:
+            pass
+        await llm_processor.close_client()
+        await buildin_sink.close()
+        await notion_sink.close()
         await db.close_db()
 
 

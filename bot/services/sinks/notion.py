@@ -51,6 +51,15 @@ class NotionSink:
         """Test hook: inject a stand-in for `notion_client.AsyncClient`."""
         self._client_override = client
 
+    async def close(self) -> None:
+        """Закрыть notion_client.AsyncClient при graceful shutdown."""
+        if self._client_real is not None:
+            try:
+                await self._client_real.aclose()
+            except Exception:
+                logger.exception("notion client close failed")
+            self._client_real = None
+
     def _get_client(self) -> Any:
         if self._client_override is not None:
             return self._client_override
@@ -126,6 +135,10 @@ def set_client(client: Any) -> None:
 
 async def create_page(draft: Draft) -> str:
     return await _sink.create_page(draft)
+
+
+async def close() -> None:
+    await _sink.close()
 
 
 def get_sink_instance() -> NotionSink:

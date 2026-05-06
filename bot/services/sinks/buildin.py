@@ -60,6 +60,15 @@ class BuildinSink:
         """Test hook: подмена httpx.AsyncClient (используется с MockTransport)."""
         self._client_override = client
 
+    async def close(self) -> None:
+        """Закрыть фоновую httpx-сессию при graceful shutdown."""
+        if self._client_real is not None:
+            try:
+                await self._client_real.aclose()
+            except Exception:
+                logger.exception("buildin httpx client close failed")
+            self._client_real = None
+
     def _get_client(self) -> httpx.AsyncClient:
         if self._client_override is not None:
             return self._client_override
@@ -169,6 +178,10 @@ async def create_page(draft: Draft) -> str:
 
 async def users_me() -> dict:
     return await _sink.users_me()
+
+
+async def close() -> None:
+    await _sink.close()
 
 
 def get_sink_instance() -> BuildinSink:
