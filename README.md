@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.15.2-blue)
+![version](https://img.shields.io/badge/version-0.15.3-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
