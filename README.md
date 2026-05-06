@@ -153,23 +153,29 @@ Buildin UI и перезапустите скрипт.
 
 ### 1. Интеграция
 
-Один Notion workspace на все воркспейсы бота — **один** Internal Integration
-на https://www.notion.so/my-integrations → токен в `NOTION_TOKEN`.
-
-Если бот-воркспейсы лежат в **разных Notion workspaces** (top-level
-workspaces в Notion, не страницы), на каждый создать свой Internal
-Integration и заполнить per-WS токен `NOTION_TOKEN_<WS>` в `.env`. Если
-для воркспейса задан `NOTION_TOKEN_<WS>` — он имеет приоритет; иначе
-используется глобальный `NOTION_TOKEN`.
+**Рекомендуемый путь — per-workspace токены.** В каждом Notion workspace,
+где лежит `NOTION_PARENT_PAGE_<WS>`, создать свой Internal Integration на
+https://www.notion.so/my-integrations и положить токен в
+`NOTION_TOKEN_<WS>`. Internal Integration привязан к одному Notion
+workspace — единый токен не сможет ходить между ними.
 
 ```
-NOTION_TOKEN=...               # глобальный fallback (один Notion workspace на всё)
-NOTION_TOKEN_PERSONAL=...      # опционально — per-WS, если ws в отдельном Notion workspace
+NOTION_TOKEN_PERSONAL=...
 NOTION_TOKEN_WORK=...
 NOTION_TOKEN_FAMILY=...
 NOTION_TOKEN_GROWTH=...
 NOTION_TOKEN_AI_PATH=...
 ```
+
+Если все `NOTION_PARENT_PAGE_<WS>` лежат в **одном** Notion workspace —
+достаточно одного Integration и legacy `NOTION_TOKEN` (fallback, когда
+per-WS не задан):
+
+```
+NOTION_TOKEN=...               # legacy fallback
+```
+
+Per-WS токен имеет приоритет над `NOTION_TOKEN`.
 
 ### 2. Резолв DB id и lazy two-step auto-create
 
@@ -253,8 +259,8 @@ Per-(workspace × type): `NOTION_DB_<WS>_<TYPE>` (например
 ### 6. ID
 
 Скопировать database / page id из URL (32-символьный hex после workspace)
-в соответствующую переменную `.env`. Без `NOTION_TOKEN` бот работает в
-stub-режиме (логирует payload).
+в соответствующую переменную `.env`. Без любого `NOTION_TOKEN_<WS>` /
+`NOTION_TOKEN` бот работает в stub-режиме (логирует payload).
 
 ## OpenAI
 
@@ -565,8 +571,8 @@ pytest -v
 | `BUILDIN_DB_<WS>_<TYPE>` | Per-(workspace × type) DB id. Заполняется setup-script'ом или руками |
 | `BUILDIN_DB_<TYPE>` | Per-type fallback DB id (без workspace-разреза) |
 | `BUILDIN_DB_DEFAULT` | Финальный fallback DB id |
-| `NOTION_TOKEN` | Глобальный токен Internal Integration Notion. Пусто → stub-режим (если нет ни одного `NOTION_TOKEN_<WS>`) |
-| `NOTION_TOKEN_<WS>` | Per-workspace токен (если воркспейс лежит в отдельном Notion workspace). Имеет приоритет над `NOTION_TOKEN`. Optional |
+| `NOTION_TOKEN_<WS>` | Per-workspace токен Internal Integration (рекомендуемый). Заполнять для каждого `NOTION_PARENT_PAGE_<WS>`. Имеет приоритет над `NOTION_TOKEN` |
+| `NOTION_TOKEN` | Legacy fallback: один токен, когда все parent-страницы в одном Notion workspace. Пусто + нет ни одного `NOTION_TOKEN_<WS>` → stub-режим |
 | `NOTION_DATABASE_ID` | Default DB id (финальный fallback для всех типов и workspace'ов) |
 | `NOTION_DB_<TYPE>` | Per-type DB id: `NOTE`, `TASK`, `IDEA`, `MEETING`, `1ON1`, `WORK`, `PERSONAL`. Все optional |
 | `NOTION_DB_<WS>_<TYPE>` | Per-(workspace × type) DB id, например `NOTION_DB_WORK_TASK`. Высший приоритет среди env. Optional |
