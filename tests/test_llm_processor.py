@@ -137,7 +137,9 @@ async def test_real_path_unknown_type_falls_back(monkeypatch):
     assert p.note_type == "note"
 
 
-async def test_real_path_falls_back_to_stub_on_error(monkeypatch):
+async def test_real_path_propagates_error_as_llm_error(monkeypatch):
+    """Network/SDK ошибка не должна прятаться в stub: handler пишет draft=failed
+    и пользователь жмёт /retry. Молчаливый fallback скрывал бы проблему."""
     monkeypatch.setattr("bot.services.llm_processor.settings.OPENAI_API_KEY", "secret")
 
     fake = MagicMock()
@@ -146,7 +148,26 @@ async def test_real_path_falls_back_to_stub_on_error(monkeypatch):
     fake.chat.completions.create = AsyncMock(side_effect=RuntimeError("rate limit"))
     llm_processor.set_client(fake)
 
-    p = await llm_processor.process("hello world")
-    # On error, stub used → type=note, title=first line.
-    assert p.note_type == "note"
-    assert p.title == "hello world"
+    with pytest.raises(llm_processor.LLMError):
+        await llm_processor.process("hello world")
+
+
+async def test_real_path_propagates_invalid_json_as_llm_error(monkeypatch):
+    """Невалидный JSON от модели — тоже LLMError, а не stub."""
+    monkeypatch.setattr("bot.services.llm_processor.settings.OPENAI_API_KEY", "secret")
+
+    msg = MagicMock()
+    msg.content = "not a json {"
+    choice = MagicMock()
+    choice.message = msg
+    response = MagicMock()
+    response.choices = [choice]
+
+    fake = MagicMock()
+    fake.chat = MagicMock()
+    fake.chat.completions = MagicMock()
+    fake.chat.completions.create = AsyncMock(return_value=response)
+    llm_processor.set_client(fake)
+
+    with pytest.raises(llm_processor.LLMError):
+        await llm_processor.process("hello world")

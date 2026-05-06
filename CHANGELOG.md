@@ -4,6 +4,39 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.9.0] – 2026-05-06
+
+### Changed
+- LLM-обработчик (`services/llm_processor.process`) больше не сваливается
+  молча на stub при ошибке OpenAI: пробрасывает `LLMError`. Хендлеры пишут
+  `draft.status=failed` и пользователь делает `/retry`. Добавлен timeout 30s
+  и встроенный `max_retries=2` у `AsyncOpenAI`.
+- Транскрибатор (`services/transcriber._run_assemblyai`) ограничен потолком
+  `MAX_POLL_SECONDS=600`. Раньше зависший в processing-статусе AssemblyAI
+  крутил ProgressReporter бесконечно. Poll-цикл вытащен в чистую функцию
+  `_poll_for_completion` с инжектируемыми clock/sleep — покрыт unit-тестом.
+- Миграция `ALTER TABLE drafts ADD COLUMN workspace` в `storage/db.py` теперь
+  ловит только `OperationalError("duplicate column name")`. Любая другая
+  ошибка (disk full, corruption) срывает старт бота.
+- Buildin health-check на старте резолвит database id для каждой пары
+  (workspace, type) и логирует fallback к `BUILDIN_DB_DEFAULT` или полное
+  отсутствие конфигурации. Раньше опечатка в env-имени проявлялась только
+  при первом сохранении.
+- Graceful shutdown: ждём завершения outbox worker'а до 35s через
+  `asyncio.wait_for`, по таймауту cancel'им. Закрываются httpx-сессии
+  OpenAI / Notion / Buildin, чтобы не оставались hanging.
+
+### Refactor
+- `_wrap_property` и `build_properties` вынесены из `services/sinks/notion.py`
+  и `buildin.py` в общий `services/sinks/_properties.py` с параметром
+  `shape="notion"|"buildin"`. Раньше любая правка схемы требовала менять
+  два почти-одинаковых блока кода.
+
+### Added
+- Тесты: `test_sinks_properties.py` (11 кейсов на оба shape),
+  `test_config.test_database_id_*` (7 веток резолва провайдер/workspace/type),
+  два теста на `_poll_for_completion` (happy + timeout).
+
 ## [0.8.0] – 2026-05-06
 
 ### Added

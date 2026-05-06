@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.8.0-blue)
+![version](https://img.shields.io/badge/version-0.9.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, форварды;
 транскрибирует медиа, классифицирует через GPT-4o, сохраняет готовые страницы в

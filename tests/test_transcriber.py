@@ -43,3 +43,57 @@ async def test_transcribe_disabled_raises(monkeypatch):
     monkeypatch.setattr("bot.services.transcriber.settings.ASSEMBLYAI_API_KEY", None)
     with pytest.raises(RuntimeError, match="not configured"):
         await transcriber.transcribe("/tmp/x.ogg")
+
+
+class _FakeRaw:
+    def __init__(self, status, text=""):
+        self.status = status
+        self.text = text
+
+
+async def test_poll_returns_on_completed():
+    raws = [_FakeRaw("queued"), _FakeRaw("processing"), _FakeRaw("completed", "ok")]
+
+    async def fetch():
+        return raws.pop(0)
+
+    async def sleep_fn(_):
+        return
+
+    result = await transcriber._poll_for_completion(
+        fetch=fetch,
+        on_fraction=None,
+        completed_statuses=("completed", "error"),
+        queued_status="queued",
+        processing_status="processing",
+        now_fn=lambda: 0.0,
+        sleep_fn=sleep_fn,
+    )
+    assert result.status == "completed"
+
+
+async def test_poll_raises_on_timeout():
+    """Бесконечный processing → RuntimeError по истечении max_poll_seconds."""
+    async def fetch():
+        return _FakeRaw("processing")
+
+    async def sleep_fn(_):
+        return
+
+    clock = {"t": 0.0}
+
+    def now_fn():
+        clock["t"] += 100.0
+        return clock["t"]
+
+    with pytest.raises(RuntimeError, match="timeout"):
+        await transcriber._poll_for_completion(
+            fetch=fetch,
+            on_fraction=None,
+            completed_statuses=("completed", "error"),
+            queued_status="queued",
+            processing_status="processing",
+            now_fn=now_fn,
+            sleep_fn=sleep_fn,
+            max_poll_seconds=300.0,
+        )
