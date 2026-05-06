@@ -4,6 +4,13 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Fixed
+- Pin `notion-client<3` в requirements: 3.0.0 переехал на новую модель
+  Notion API с data sources и дропнул `properties` в payload
+  `databases.create`. В итоге auto-create DB создавал базу только с
+  `Name`, дальнейший `pages.create` падал с `Attendees is not a
+  property that exists. Date is not a property that exists.`
+
 ### Added
 - ✏️ Edit для черновика: правка title и body до Save без повторного
   LLM-вызова. Кнопка `✏️ Edit` в превью → подменю `📝 Title` / `📄 Body`.
