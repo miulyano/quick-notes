@@ -5,11 +5,14 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 ## [Unreleased]
 
 ### Fixed
-- Pin `notion-client<3` в requirements: 3.0.0 переехал на новую модель
-  Notion API с data sources и дропнул `properties` в payload
-  `databases.create`. В итоге auto-create DB создавал базу только с
-  `Name`, дальнейший `pages.create` падал с `Attendees is not a
-  property that exists. Date is not a property that exists.`
+- Pin `Notion-Version: 2022-06-28` при создании `AsyncClient` в
+  `NotionSink._get_client`. SDK ≥2.7.0 дефолтится на `2025-09-03`,
+  где `databases.create` уехал в data_sources-модель и игнорирует
+  `properties` в старом shape. В итоге auto-create DB создавал базу
+  только с `Name`, дальнейший `pages.create` падал с `Attendees is
+  not a property that exists. Date is not a property that exists.
+  CreatedAt is not a property that exists.` Pin `notion-client<3`
+  тоже остаётся — `notion_version` параметр доступен с 2.x.
 
 ### Added
 - ✏️ Edit для черновика: правка title и body до Save без повторного

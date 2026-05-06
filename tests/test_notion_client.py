@@ -67,8 +67,9 @@ async def test_per_workspace_token_used(fresh_db, monkeypatch):
     captured: list[str] = []
 
     class _FakeAsyncClient:
-        def __init__(self, *, auth):
+        def __init__(self, *, auth, notion_version=None):
             captured.append(auth)
+            self.notion_version = notion_version
 
         async def aclose(self):
             pass
@@ -80,6 +81,9 @@ async def test_per_workspace_token_used(fresh_db, monkeypatch):
     sink._get_client("work")  # повтор — кэш hit, без нового клиента
 
     assert captured == ["work-token", "global"]
+    # Sanity: каждый клиент создаётся с pinned Notion-Version 2022-06-28
+    # (см. notion.py:_get_client — обходим data_sources-shape SDK 2025-09-03).
+    assert all(c.notion_version == "2022-06-28" for c in sink._clients_real.values())
     assert set(sink._clients_real.keys()) == {"work", "personal"}
 
     await sink.close()
@@ -101,7 +105,7 @@ async def test_close_closes_all_per_ws_clients(fresh_db, monkeypatch):
     closed: list[str] = []
 
     class _FakeAsyncClient:
-        def __init__(self, *, auth):
+        def __init__(self, *, auth, notion_version=None):
             self.auth = auth
 
         async def aclose(self):
