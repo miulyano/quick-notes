@@ -4,6 +4,22 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Added
+- Notion lazy two-step auto-create: под `NOTION_PARENT_PAGE_<WS>` бот
+  сначала создаёт wrapper-page с plural-title типа («📝 Заметки»,
+  «✅ Задачи», …), затем full-page DB внутри неё. Структура зеркалит
+  Buildin: `parent → 📝 Заметки → DB`. `database_id` кэшируется в
+  `notion_dbs` без изменений схемы.
+- Per-workspace Notion токены `NOTION_TOKEN_<WS>` — на случай когда
+  каждый бот-воркспейс лежит в своём Notion workspace со своим
+  Internal Integration. Если задан — используется вместо глобального
+  `NOTION_TOKEN`. Sink держит `AsyncClient` per-workspace в кэше.
+
+### Changed
+- `NOTES_PROVIDER` дефолт сменён с `buildin` на `notion`.
+- `settings.notion_enabled` принимает любой токен (глобальный или
+  per-WS) — раньше требовал именно `NOTION_TOKEN`.
+
 ## [0.12.0] – 2026-05-06
 
 ### Added

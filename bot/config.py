@@ -14,12 +14,16 @@ class Settings(BaseSettings):
     ALLOWED_USER_IDS: str  # comma-separated list, parsed via property
     DATABASE_PATH: str = "data/notes.db"
 
-    # Куда сохранять заметки. По умолчанию — Buildin (новый дефолт).
-    NOTES_PROVIDER: Literal["buildin", "notion"] = "buildin"
+    # Куда сохранять заметки. По умолчанию — Notion.
+    NOTES_PROVIDER: Literal["buildin", "notion"] = "notion"
 
-    # Notion integration. NOTION_TOKEN + NOTION_DATABASE_ID (default fallback DB)
-    # both required to enable real saves. Per-type DB overrides below — если
-    # тип-DB var пустой, используется default DB.
+    # Notion integration. NOTION_TOKEN — глобальный fallback. Можно задать
+    # `NOTION_TOKEN_<WS>` на каждый воркспейс, если бот-воркспейсы лежат в
+    # разных Notion workspaces (у каждого свой integration). Auto-create
+    # делает two-step: pages.create (wrapper-page с plural-title типа) →
+    # databases.create (full-page DB внутри wrapper). Структура зеркалит
+    # Buildin: parent → 📝 Заметки → DB.
+    # Per-type DB overrides ниже — если тип-DB var пустой, используется default DB.
     NOTION_TOKEN: Optional[str] = None
     NOTION_DATABASE_ID: Optional[str] = None
     NOTION_DB_NOTE: Optional[str] = None
@@ -61,7 +65,14 @@ class Settings(BaseSettings):
 
     @property
     def notion_enabled(self) -> bool:
-        if not self.NOTION_TOKEN:
+        # Должен быть хотя бы один токен: глобальный NOTION_TOKEN или
+        # per-workspace NOTION_TOKEN_<WS>.
+        has_token = bool(self.NOTION_TOKEN) or any(
+            value
+            for env, value in os.environ.items()
+            if env.startswith("NOTION_TOKEN_") and env != "NOTION_TOKEN"
+        )
+        if not has_token:
             return False
         # Любой из источников DB id достаточен:
         # 1) NOTION_DATABASE_ID, 2) хотя бы один per-type NOTION_DB_<TYPE>,
@@ -134,6 +145,15 @@ class Settings(BaseSettings):
 
     def notion_parent_page_id(self, workspace_key: str) -> Optional[str]:
         return os.environ.get(f"NOTION_PARENT_PAGE_{workspace_key.upper()}")
+
+    def notion_token_for(self, workspace_key: str) -> Optional[str]:
+        """Per-workspace Notion integration token.
+
+        NOTION_TOKEN_<WS> → fallback NOTION_TOKEN. Используется когда
+        каждый бот-воркспейс лежит в своём Notion workspace со своим
+        integration token.
+        """
+        return os.environ.get(f"NOTION_TOKEN_{workspace_key.upper()}") or self.NOTION_TOKEN
 
 
 settings = Settings()
