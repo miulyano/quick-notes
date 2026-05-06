@@ -4,6 +4,28 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+## [0.8.0] – 2026-05-06
+
+### Added
+- Подтип `sync` для типа `meeting` — регулярная встреча команды (status check,
+  блокеры, назначения). Активируется через `extras.kind="sync"` от LLM.
+  Шаблон рендерит секции `## Status updates` / `## Notes` / `## Blockers` /
+  `## Action items` (вместо классических agenda/discussion/decisions). Новые
+  extras-ключи: `status_updates`, `blockers`. Триггеры в LLM-prompt: «синк»,
+  «standup», «daily», «weekly», «status», «команда собралась», «обсудили статусы»,
+  «блокеры».
+- LLM-prompt теперь явно требует от type=task положить 1-3 параграфа описания
+  задачи в `markdown_body` (контекст, мотивация, условия успеха) перед
+  `## Чек-лист`. Шаблон уже это поддерживал; промпт довёл до устойчивого поведения.
+
+### Changed
+- `scripts/setup_buildin_dbs.py` создаёт DB не в корне space, а на отдельной
+  странице-обёртке `<workspace> · <тип>`. Структура в Buildin: space → page
+  «✅ Задача» → full-page DB Tasks (и т.п. на каждый тип). Уже существующие
+  записи `BUILDIN_DB_<WS>_<TYPE>` в .env скрипт пропускает, поэтому старые DB
+  остаются в корне space (смешанная структура допустима; для однородной —
+  удалить env-vars и DB вручную, затем перезапустить скрипт).
+
 ## [0.7.0] – 2026-05-05
 
 ### Added

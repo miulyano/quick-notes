@@ -3,8 +3,10 @@
 Логика:
 1. Читает реестры (workspaces, note_types) и для каждой пары проверяет env
    `BUILDIN_DB_<WS>_<TYPE>`. Если задан — пропускает (мап на существующую DB).
-2. Если пусто — создаёт DB через POST /v1/databases в space, указанный в
-   `BUILDIN_SPACE_<WS>`. Если space не задан — fail с понятным сообщением.
+2. Если пусто — сначала создаёт страницу-обёртку в space (parent=space_id, title =
+   `<ws.label> · <note_type.label>`), затем создаёт DB на этой странице
+   (parent=page_id). Так в Buildin внутри workspace-space виден список страниц-разделов
+   (📝 Заметка, ✅ Задача, …), а каждая страница содержит full-page DB своего типа.
 3. Печатает в stdout строки `BUILDIN_DB_<WS>_<TYPE>=<uuid>` (для копи-пейста в .env).
 
 Юзкейсы:
@@ -64,8 +66,26 @@ def _property_schema(prop: NotionProperty) -> dict:
     return base
 
 
-def _build_create_payload(ws: Workspace, note_type: NoteType, space_id: str) -> dict:
-    title = f"{ws.label} · {note_type.label}"
+def _section_title(ws: Workspace, note_type: NoteType) -> str:
+    return f"{ws.label} · {note_type.label}"
+
+
+def _build_section_page_payload(ws: Workspace, note_type: NoteType, space_id: str) -> dict:
+    """Страница-обёртка прямо в space. Внутри неё потом создаётся full-page DB."""
+    title = _section_title(ws, note_type)
+    return {
+        "parent": {"type": "space_id", "space_id": space_id},
+        "properties": {
+            "title": {
+                "type": "title",
+                "title": [{"type": "text", "text": {"content": title}}],
+            }
+        },
+    }
+
+
+def _build_create_payload(ws: Workspace, note_type: NoteType, parent_page_id: str) -> dict:
+    title = _section_title(ws, note_type)
     properties: dict[str, dict] = {p.name: _property_schema(p) for p in note_type.properties}
 
     # Title-property обязателен. Если в типе нет title — добавим Name.
@@ -76,7 +96,7 @@ def _build_create_payload(ws: Workspace, note_type: NoteType, space_id: str) -> 
     properties["CreatedAt"] = _property_schema(NotionProperty("CreatedAt", "date"))
 
     return {
-        "parent": {"type": "space_id", "space_id": space_id},
+        "parent": {"type": "page_id", "page_id": parent_page_id},
         "title": [{"type": "text", "text": {"content": title}}],
         "properties": properties,
     }
@@ -84,6 +104,17 @@ def _build_create_payload(ws: Workspace, note_type: NoteType, space_id: str) -> 
 
 def _env_name(ws: Workspace, note_type: NoteType) -> str:
     return f"BUILDIN_DB_{ws.key.upper()}_{note_type.key.upper()}"
+
+
+async def _create_section_page(client: httpx.AsyncClient, payload: dict) -> str:
+    resp = await client.post("/v1/pages", json=payload)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"buildin {resp.status_code}: {resp.text[:500]}")
+    body = resp.json()
+    page_id = body.get("id") or body.get("uuid")
+    if not page_id:
+        raise RuntimeError(f"pages.create response missing id: {body!r}")
+    return page_id
 
 
 async def _create_db(client: httpx.AsyncClient, payload: dict) -> str:
@@ -131,16 +162,30 @@ async def run(workspace_filter: Optional[str], type_filter: Optional[str], dry_r
                     )
                     continue
 
-                payload = _build_create_payload(ws, note_type, space_id)
+                section_title = _section_title(ws, note_type)
                 if dry_run:
-                    print(f"# would create: {env_name} (space={space_id} title={payload['title'][0]['text']['content']!r})")
+                    print(
+                        f"# would create page {section_title!r} in space={space_id}, "
+                        f"then full-page DB inside that page → {env_name}"
+                    )
                     continue
 
+                page_payload = _build_section_page_payload(ws, note_type, space_id)
+                try:
+                    page_id = await _create_section_page(client, page_payload)
+                except Exception as exc:
+                    sys.stderr.write(f"# failed page for {env_name}: {exc}\n")
+                    continue
+
+                payload = _build_create_payload(ws, note_type, page_id)
                 try:
                     db_id = await _create_db(client, payload)
                 except Exception as exc:
-                    sys.stderr.write(f"# failed {env_name}: {exc}\n")
+                    sys.stderr.write(
+                        f"# failed db for {env_name} (orphan page {page_id} left in Buildin): {exc}\n"
+                    )
                     continue
+                print(f"# section page: {page_id} ({section_title})")
                 print(f"{env_name}={db_id}")
     return 0
 
