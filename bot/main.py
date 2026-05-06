@@ -8,6 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from bot.config import settings
+from bot.domain.note_types import TYPES
 from bot.domain.workspaces import WORKSPACES
 from bot.handlers import callbacks, commands, inputs, voice
 from bot.middlewares.auth import AuthMiddleware
@@ -48,6 +49,36 @@ async def _buildin_health_check() -> None:
             "Не заданы env-переменные spaces: %s — соответствующие workspace'ы "
             "будут писать через fallback DB, а setup_buildin_dbs не сможет создать DBs",
             ", ".join(missing),
+        )
+
+    # Резолвим database id для каждой пары (workspace, type), чтобы вылавливать
+    # опечатки в env-именах (BUILDIN_DB_<WS>_<TYPE>): pydantic их не валидирует
+    # из-за extra="ignore", иначе ошибка проявится только при первом сохранении.
+    fallbacks: list[str] = []
+    no_db: list[str] = []
+    for w in WORKSPACES:
+        for t in TYPES:
+            ws_env = f"BUILDIN_DB_{w.key.upper()}_{t.key.upper()}"
+            type_env = f"BUILDIN_DB_{t.key.upper()}"
+            resolved = settings.database_id_for(
+                t.db_env, provider="buildin", workspace_key=w.key
+            )
+            if resolved is None:
+                no_db.append(f"{w.key}/{t.key}")
+            elif resolved == settings.BUILDIN_DB_DEFAULT and not (
+                os.environ.get(ws_env) or os.environ.get(type_env)
+            ):
+                fallbacks.append(f"{w.key}/{t.key}")
+    if fallbacks:
+        logger.info(
+            "buildin DB fallback на BUILDIN_DB_DEFAULT для: %s",
+            ", ".join(fallbacks),
+        )
+    if no_db:
+        logger.warning(
+            "buildin DB не сконфигурирован для: %s — сохранения в эти ws/type "
+            "будут падать. Задай BUILDIN_DB_<WS>_<TYPE> или BUILDIN_DB_DEFAULT.",
+            ", ".join(no_db),
         )
 
 
