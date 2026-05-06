@@ -1,5 +1,10 @@
 """Draft CRUD. Status machine:
 raw → transcribed → classified → awaiting_confirm → saving → [DELETE] | failed
+
+Edit-ветки из awaiting_confirm:
+awaiting_confirm ↔ awaiting_edit_title
+awaiting_confirm ↔ awaiting_edit_body
+После записи нового значения статус возвращается в awaiting_confirm.
 """
 
 from __future__ import annotations
@@ -99,6 +104,24 @@ async def delete(draft_id: str) -> None:
     conn = get_conn()
     await conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
     await conn.commit()
+
+
+async def find_awaiting_edit(user_id: int) -> Optional[Draft]:
+    """Most recent draft of this user in awaiting_edit_title|awaiting_edit_body, или None."""
+    conn = get_conn()
+    cur = await conn.execute(
+        """
+        SELECT * FROM drafts
+        WHERE user_id = ?
+          AND status IN ('awaiting_edit_title', 'awaiting_edit_body')
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    row = await cur.fetchone()
+    await cur.close()
+    return _row_to_draft(row) if row else None
 
 
 async def find_stale_saving(older_than_secs: int) -> list[Draft]:
