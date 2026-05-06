@@ -4,9 +4,11 @@
 1. Читает реестры (workspaces, note_types) и для каждой пары проверяет env
    `BUILDIN_DB_<WS>_<TYPE>`. Если задан — пропускает (мап на существующую DB).
 2. Если пусто — сначала создаёт страницу-обёртку в space (parent=space_id, title =
-   `<ws.label> · <note_type.label>`), затем создаёт DB на этой странице
-   (parent=page_id). Так в Buildin внутри workspace-space виден список страниц-разделов
-   (📝 Заметка, ✅ Задача, …), а каждая страница содержит full-page DB своего типа.
+   plural-форма типа из `_PLURAL_TITLES`, например `📝 Заметки`), затем создаёт DB
+   на этой странице (parent=page_id). Так в Buildin внутри workspace-space виден
+   список страниц-разделов (📝 Заметки, ✅ Задачи, …), а каждая страница содержит
+   full-page DB своего типа. Префикс воркспейса в title не нужен — он и так понятен
+   из имени space'а.
 3. Печатает в stdout строки `BUILDIN_DB_<WS>_<TYPE>=<uuid>` (для копи-пейста в .env).
 
 Юзкейсы:
@@ -66,8 +68,19 @@ def _property_schema(prop: NotionProperty) -> dict:
     return base
 
 
+_PLURAL_TITLES: dict[str, str] = {
+    "note": "📝 Заметки",
+    "task": "✅ Задачи",
+    "idea": "💡 Идеи",
+    "meeting": "🤝 Митинги",
+    "1on1": "👥 1:1",
+    "work": "💼 Рабочее",
+    "personal": "🌱 Личное",
+}
+
+
 def _section_title(ws: Workspace, note_type: NoteType) -> str:
-    return f"{ws.label} · {note_type.label}"
+    return _PLURAL_TITLES.get(note_type.key, note_type.label)
 
 
 def _build_section_page_payload(ws: Workspace, note_type: NoteType, space_id: str) -> dict:
