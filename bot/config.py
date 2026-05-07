@@ -19,10 +19,10 @@ class Settings(BaseSettings):
 
     # Notion integration. NOTION_TOKEN — глобальный fallback. Можно задать
     # `NOTION_TOKEN_<WS>` на каждый воркспейс, если бот-воркспейсы лежат в
-    # разных Notion workspaces (у каждого свой integration). Auto-create
-    # делает two-step: pages.create (wrapper-page с plural-title типа) →
-    # databases.create (full-page DB внутри wrapper). Структура зеркалит
-    # Buildin: parent → 📝 Заметки → DB.
+    # разных Notion workspaces (у каждого свой integration). Auto-create —
+    # one-step: databases.create создаёт full-page DB прямо в
+    # NOTION_PARENT_PAGE_<WS> с plural-title типа. Notion рендерит full-page
+    # DB как страницу-раздел, отдельная wrapper-page не нужна.
     # Per-type DB overrides ниже — если тип-DB var пустой, используется default DB.
     NOTION_TOKEN: Optional[str] = None
     NOTION_DATABASE_ID: Optional[str] = None

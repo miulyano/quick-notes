@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.15.3-blue)
+![version](https://img.shields.io/badge/version-0.15.4-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -66,11 +66,11 @@ DB-properties — это **реф-пример**, не «единственны�
 - **Routing**: per-(workspace × type) для Buildin (`BUILDIN_DB_<WS>_<TYPE>` →
   `BUILDIN_DB_<TYPE>` → `BUILDIN_DB_DEFAULT`); для Notion та же цепочка
   (`NOTION_DB_<WS>_<TYPE>` → `NOTION_DB_<TYPE>` → `NOTION_DATABASE_ID`) **+
-  lazy two-step auto-create** под `NOTION_PARENT_PAGE_<WS>` если ничего не
-  задано — бот создаёт wrapper-page (`📝 Заметки` / `✅ Задачи` / …) и
-  внутри неё full-page DB при первом hit, кэширует database_id в `notion_dbs`.
-  Структура зеркалит Buildin (`parent → 📝 Заметки → DB`). Без токена
-  провайдера — stub-режим.
+  lazy one-step auto-create** под `NOTION_PARENT_PAGE_<WS>` если ничего не
+  задано — бот создаёт full-page DB прямо в parent-page при первом hit и
+  кэширует database_id в `notion_dbs`. Notion рендерит full-page DB как
+  страницу-раздел (`📝 Заметки` / `✅ Задачи` / …) с full-width таблицей,
+  отдельная wrapper-page не нужна. Без токена провайдера — stub-режим.
 - Markdown тела заметки конвертируется в provider-specific blocks (параграфы,
   заголовки `#`/`##`/`###`, списки `-`/`1.`, цитаты `>`, code-fences ` ``` `).
   Для Buildin длинные заметки (>100 блоков) дописываются чанками по 100
@@ -111,19 +111,17 @@ DB-properties — это **реф-пример**, не «единственны�
 
 ### 3. Базы (databases)
 
-Внутри каждого space скрипт создаёт отдельную **страницу-обёртку** на каждый
-тип заметки. Title берётся из plural-формы реестра типов (в реф-сетапе:
-`📝 Заметки`, `✅ Задачи`, `💡 Идеи`, `🤝 Митинги`, `👥 1:1`, `💼 Рабочее`,
-`🌱 Личное` — см. `_PLURAL_TITLES` в скрипте) — без префикса воркспейса,
-так как имя space'а уже задаёт контекст. Внутри страницы — full-page DB
-с тем же title. Структура в Buildin:
+Внутри каждого space скрипт создаёт **full-page DB** на каждый тип заметки.
+Title берётся из plural-формы реестра типов (в реф-сетапе: `📝 Заметки`,
+`✅ Задачи`, `💡 Идеи`, `🤝 Митинги`, `👥 1:1`, `💼 Рабочее`, `🌱 Личное` —
+см. `_PLURAL_TITLES` в скрипте) — без префикса воркспейса, так как имя
+space'а уже задаёт контекст. Buildin рендерит full-page DB как страницу-раздел
+с full-width таблицей. Структура в Buildin:
 
 ```
 space «Работа»
-├── page «✅ Задачи»
-│   └── DB ✅ Задачи
-├── page «📝 Заметки»
-│   └── DB 📝 Заметки
+├── DB ✅ Задачи         ← full-page DB (создаст скрипт)
+├── DB 📝 Заметки
 └── …
 ```
 
@@ -138,12 +136,6 @@ python -m scripts.setup_buildin_dbs >> .env
 Скрипт уважает уже заданные env'ы — заполняет только пустые slot'ы.
 Доп. флаги: `--dry-run` (без сетевых вызовов), `--workspace=<key>`,
 `--type=<key>` (только конкретный workspace или тип).
-
-Если у вас остались DB, созданные старой версией скрипта (лежат прямо в
-корне space, без page-обёртки), они продолжат работать — env-vars у них
-уже заполнены, скрипт их пропускает. Чтобы получить однородную структуру,
-удалите соответствующие `BUILDIN_DB_<WS>_<TYPE>` из `.env`, удалите DB в
-Buildin UI и перезапустите скрипт.
 
 Кроме перечисленных свойств бот всегда дописывает `CreatedAt` (date) — оно
 создаётся скриптом автоматически.
@@ -181,7 +173,7 @@ NOTION_TOKEN=...               # legacy fallback
 
 Per-WS токен имеет приоритет над `NOTION_TOKEN`.
 
-### 2. Резолв DB id и lazy two-step auto-create
+### 2. Резолв DB id и lazy one-step auto-create
 
 Бот ищет database для пары `(workspace, type)` по цепочке:
 
@@ -190,29 +182,27 @@ notion_dbs (SQLite cache)
   → NOTION_DB_<WS>_<TYPE>     (env, например NOTION_DB_WORK_TASK)
   → NOTION_DB_<TYPE>          (per-type, без workspace-разреза)
   → NOTION_DATABASE_ID        (глобальный fallback)
-  → two-step auto-create под NOTION_PARENT_PAGE_<WS>:
-      pages.create (wrapper-page «📝 Заметки» / «✅ Задачи» / …) →
-      databases.create (full-page DB внутри wrapper).
+  → one-step auto-create под NOTION_PARENT_PAGE_<WS>:
+      databases.create (full-page DB прямо в parent-page,
+                        title = plural-форма типа).
     database_id кэшируется в notion_dbs.
 ```
 
-Любой первый результат — финальный. Auto-create зеркалит структуру Buildin:
-`parent-page → 📝 Заметки → DB`.
+Любой первый результат — финальный. Notion рендерит full-page DB как
+страницу-раздел с full-width таблицей — отдельная wrapper-page не нужна.
 
 ### 3. Lazy auto-create (рекомендуется)
 
 Минимальный setup без ручного создания 35 баз. Создаёшь **по одной пустой
 top-level странице** в каждом Notion workspace — она будет parent для
-воркспейса бота. Расшарить страницу с integration — все вложенные
-(wrapper-page и DB) наследуют доступ.
+воркспейса бота. Расшарить страницу с integration — все вложенные DB
+наследуют доступ.
 
 ```
 (Notion workspace «Личное»)
 └── Notes-bot          ← parent-page (расшарена с integration)
-    ├── 📝 Заметки     ← wrapper-page (создаст бот при первом hit)
-    │   └── DB 📝 Заметки   ← full-page DB (туда летят страницы заметок)
-    ├── ✅ Задачи
-    │   └── DB ✅ Задачи
+    ├── DB 📝 Заметки  ← full-page DB (создаст бот при первом hit)
+    ├── DB ✅ Задачи
     └── …
 ```
 
@@ -226,12 +216,12 @@ NOTION_PARENT_PAGE_GROWTH=...
 NOTION_PARENT_PAGE_AI_PATH=...
 ```
 
-При первом сохранении в `(workspace × type)` бот создаст wrapper-page с
-plural-title типа (`📝 Заметки` и т.п.) под parent-страницей, внутри неё —
-full-page DB со схемой типа из реестра (`note_types.py`), и закэширует
-database_id в SQLite. Структура растёт по факту использования — пустые
-комбинации не плодятся. Workspace, для которого `NOTION_PARENT_PAGE_<WS>`
-не задан, фолбэкнется на `NOTION_DB_<TYPE>` или `NOTION_DATABASE_ID`.
+При первом сохранении в `(workspace × type)` бот создаст full-page DB с
+plural-title типа (`📝 Заметки` и т.п.) под parent-страницей, со схемой
+типа из реестра (`note_types.py`), и закэширует database_id в SQLite.
+Структура растёт по факту использования — пустые комбинации не плодятся.
+Workspace, для которого `NOTION_PARENT_PAGE_<WS>` не задан, фолбэкнется
+на `NOTION_DB_<TYPE>` или `NOTION_DATABASE_ID`.
 
 ### 4. Ручное создание баз (опционально)
 
@@ -580,7 +570,7 @@ pytest -v
 | `NOTION_DATABASE_ID` | Default DB id (финальный fallback для всех типов и workspace'ов) |
 | `NOTION_DB_<TYPE>` | Per-type DB id: `NOTE`, `TASK`, `IDEA`, `MEETING`, `1ON1`, `WORK`, `PERSONAL`. Все optional |
 | `NOTION_DB_<WS>_<TYPE>` | Per-(workspace × type) DB id, например `NOTION_DB_WORK_TASK`. Высший приоритет среди env. Optional |
-| `NOTION_PARENT_PAGE_<WS>` | Parent-page id для lazy two-step auto-create (wrapper-page + DB) конкретного workspace. Если задан — бот создаст структуру при первом сохранении в `(<ws> × type)` и закэширует database_id. Optional |
+| `NOTION_PARENT_PAGE_<WS>` | Parent-page id для lazy one-step auto-create (full-page DB прямо в parent-page) конкретного workspace. Если задан — бот создаст DB при первом сохранении в `(<ws> × type)` и закэширует database_id. Optional |
 | `OPENAI_API_KEY` | Ключ OpenAI для GPT-4o classify+format. Пусто → stub |
 | `OPENAI_MODEL` | Имя модели (по умолчанию `gpt-4o`) |
 | `ASSEMBLYAI_API_KEY` | Ключ AssemblyAI для транскрибации. Пусто → voice/audio/video отключены |

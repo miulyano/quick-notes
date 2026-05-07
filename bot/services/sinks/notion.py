@@ -1,4 +1,4 @@
-"""Notion sink. Per-(workspace × type) DB routing + lazy two-step auto-create.
+"""Notion sink. Per-(workspace × type) DB routing + lazy one-step auto-create.
 
 Real path (хотя бы один токен + хотя бы один resolvable DB или parent-page)
 создаёт страницу в DB-таргете для пары (draft.workspace, draft.note_type).
@@ -7,9 +7,10 @@ Real path (хотя бы один токен + хотя бы один resolvable
   cache (notion_dbs table) → NOTION_DB_<WS>_<TYPE> → NOTION_DB_<TYPE>
                           → NOTION_DATABASE_ID
                           → auto-create под NOTION_PARENT_PAGE_<WS>
-                            (two-step: wrapper-page → child DB)
+                            (один POST databases.create — full-page DB)
 
-Auto-create зеркалит структуру Buildin: parent-page → 📝 Заметки → DB.
+Notion рендерит full-page DB как страницу с title и full-width таблицей,
+поэтому отдельная wrapper-page не нужна.
 
 Setup the user must do (see README):
 - Internal Integration в Notion → token в NOTION_TOKEN.
@@ -19,9 +20,9 @@ Setup the user must do (see README):
   - NOTION_DATABASE_ID (минимум — все типы и workspace'ы упадут туда), либо
   - per-type / per-(ws×type) env ids, либо
   - NOTION_PARENT_PAGE_<WS> на каждый используемый workspace —
-    бот создаст wrapper-page + DB при первом hit и закэширует.
+    бот создаст full-page DB при первом hit и закэширует.
 - Каждая DB / parent-page должна быть расшарена с integration
-  (Connections → Add). Auto-created wrapper/DB наследуют доступ от parent-page.
+  (Connections → Add). Auto-created DB наследует доступ от parent-page.
 
 Без любого токена/DB → stub mode (logs only).
 """

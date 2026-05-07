@@ -5,6 +5,12 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 ## [Unreleased]
 
 ### Fixed
+- Notion и Buildin auto-create больше не создают промежуточную wrapper-страницу:
+  на `(workspace × type)` создаётся одна full-page DB прямо в
+  `NOTION_PARENT_PAGE_<WS>` (или buildin space). Это убирает дублирование
+  заголовка (раньше: page «📝 Заметки» → внутри page «📝 Заметки» →
+  DB header «📝 Заметки»). Кэш `notion_dbs` хранит database_id и продолжает
+  работать.
 - Pin `notion-client<2.6` в `requirements.txt`. SDK 2.6.0+ убрал
   `properties` из whitelisted body-полей `databases.create`
   (мигрировал на `initial_data_source` в data_sources API).
