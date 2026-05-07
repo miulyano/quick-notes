@@ -137,18 +137,6 @@ python -m scripts.setup_buildin_dbs >> .env
 Доп. флаги: `--dry-run` (без сетевых вызовов), `--workspace=<key>`,
 `--type=<key>` (только конкретный workspace или тип).
 
-Если у вас остались DB, созданные **старыми** версиями скрипта (с
-промежуточной wrapper-page), запустите чистку:
-
-```bash
-python -m scripts.cleanup_buildin_orphans --dry-run
-python -m scripts.cleanup_buildin_orphans
-```
-
-Скрипт архивирует wrapper-страницы по `BUILDIN_DB_*` env'ам и подсказывает
-какие строки убрать из `.env`. После этого заново запустите
-`setup_buildin_dbs.py >> .env` для пересоздания DB по новой плоской схеме.
-
 Кроме перечисленных свойств бот всегда дописывает `CreatedAt` (date) — оно
 создаётся скриптом автоматически.
 
@@ -234,17 +222,6 @@ plural-title типа (`📝 Заметки` и т.п.) под parent-стран
 Структура растёт по факту использования — пустые комбинации не плодятся.
 Workspace, для которого `NOTION_PARENT_PAGE_<WS>` не задан, фолбэкнется
 на `NOTION_DB_<TYPE>` или `NOTION_DATABASE_ID`.
-
-Если у тебя уже работал старый two-step (wrapper + DB), запусти один раз:
-
-```bash
-python -m scripts.cleanup_notion_orphans --dry-run
-python -m scripts.cleanup_notion_orphans
-```
-
-Скрипт архивирует автосозданные wrapper-страницы (вместе с DB внутри —
-trash хранится 30 дней) и чистит кэш `notion_dbs`. Следующее сохранение
-заметки создаст свежую full-page DB по новому one-step флоу.
 
 ### 4. Ручное создание баз (опционально)
 

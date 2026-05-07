@@ -45,19 +45,3 @@ async def all_entries() -> list[dict]:
     ) as cur:
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
-
-
-async def delete(workspace: str, note_type: str) -> None:
-    conn = get_conn()
-    await conn.execute(
-        "DELETE FROM notion_dbs WHERE workspace = ? AND note_type = ?",
-        (workspace, note_type),
-    )
-    await conn.commit()
-
-
-async def clear() -> None:
-    """Полная очистка кэша. Используется one-shot скриптом cleanup_notion_orphans."""
-    conn = get_conn()
-    await conn.execute("DELETE FROM notion_dbs")
-    await conn.commit()

@@ -9,21 +9,8 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
   на `(workspace × type)` создаётся одна full-page DB прямо в
   `NOTION_PARENT_PAGE_<WS>` (или buildin space). Это убирает дублирование
   заголовка (раньше: page «📝 Заметки» → внутри page «📝 Заметки» →
-  DB header «📝 Заметки»). Уже созданные wrapper-страницы остаются — для
-  чистки см. новые скрипты `scripts/cleanup_notion_orphans` и
-  `scripts/cleanup_buildin_orphans`. Кэш `notion_dbs` хранит database_id и
-  продолжает работать.
-
-### Added
-- `scripts/cleanup_notion_orphans.py` — one-shot чистка автосозданных
-  wrapper-страниц в Notion (по записям в `notion_dbs`). Архивирует wrapper и
-  чистит кэш. После прогона следующее сохранение заметки создаст свежую
-  full-page DB по новому one-step флоу.
-- `scripts/cleanup_buildin_orphans.py` — то же для Buildin (по env-привязкам
-  `BUILDIN_DB_*`). После прогона руками очистить эти env-строки и заново
-  запустить `setup_buildin_dbs.py` для пересоздания DB по one-step флоу.
-
-### Fixed
+  DB header «📝 Заметки»). Кэш `notion_dbs` хранит database_id и продолжает
+  работать.
 - Pin `notion-client<2.6` в `requirements.txt`. SDK 2.6.0+ убрал
   `properties` из whitelisted body-полей `databases.create`
   (мигрировал на `initial_data_source` в data_sources API).
