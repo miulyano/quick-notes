@@ -254,8 +254,8 @@ async def test_truncates_excess_blocks(fresh_db, monkeypatch):
     assert len(blocks) == 5
 
 
-async def test_lazy_two_step_create_when_only_parent_page_set(fresh_db, monkeypatch):
-    """Lazy auto-create: pages.create wrapper → databases.create DB → pages.create note."""
+async def test_lazy_one_step_create_when_only_parent_page_set(fresh_db, monkeypatch):
+    """Lazy auto-create: databases.create full-page DB → pages.create note."""
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "k")
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", None)
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DB_TASK", None)
@@ -263,25 +263,21 @@ async def test_lazy_two_step_create_when_only_parent_page_set(fresh_db, monkeypa
 
     fake = MagicMock()
     fake.pages = MagicMock()
-    # 1-й вызов pages.create — wrapper-page; 2-й — note-page внутри DB.
-    fake.pages.create = AsyncMock(side_effect=[{"id": "wrapper-uuid"}, {"id": "note-page-id"}])
+    fake.pages.create = AsyncMock(return_value={"id": "note-page-id"})
     fake.databases = MagicMock()
     fake.databases.create = AsyncMock(return_value={"id": "auto-created-db"})
     notion_client.set_client(fake)
 
     await notion_client.create_page(_draft(note_type="task", workspace="work"))
 
-    # Wrapper создался под parent-page воркспейса.
-    wrapper_call = fake.pages.create.await_args_list[0]
-    assert wrapper_call.kwargs["parent"] == {"type": "page_id", "page_id": "parent-uuid"}
-
-    # DB создалась внутри wrapper.
+    # DB создалась прямо в parent-page воркспейса (без wrapper-page).
     assert fake.databases.create.await_count == 1
     db_call = fake.databases.create.await_args
-    assert db_call.kwargs["parent"] == {"type": "page_id", "page_id": "wrapper-uuid"}
+    assert db_call.kwargs["parent"] == {"type": "page_id", "page_id": "parent-uuid"}
 
-    # Note-page легла в auto-created DB.
-    note_call = fake.pages.create.await_args_list[1]
+    # Note-page легла в auto-created DB. Никакого wrapper-вызова до неё нет.
+    assert fake.pages.create.await_count == 1
+    note_call = fake.pages.create.await_args
     assert note_call.kwargs["parent"] == {"database_id": "auto-created-db"}
 
 
@@ -293,10 +289,7 @@ async def test_lazy_create_caches_for_subsequent_calls(fresh_db, monkeypatch):
 
     fake = MagicMock()
     fake.pages = MagicMock()
-    # 1-й — wrapper-page (создаётся раз); 2-й, 3-й — note-page.
-    fake.pages.create = AsyncMock(
-        side_effect=[{"id": "wrapper"}, {"id": "n1"}, {"id": "n2"}]
-    )
+    fake.pages.create = AsyncMock(side_effect=[{"id": "n1"}, {"id": "n2"}])
     fake.databases = MagicMock()
     fake.databases.create = AsyncMock(return_value={"id": "cached-db"})
     notion_client.set_client(fake)
@@ -304,8 +297,7 @@ async def test_lazy_create_caches_for_subsequent_calls(fresh_db, monkeypatch):
     await notion_client.create_page(_draft(id="d1", note_type="note"))
     await notion_client.create_page(_draft(id="d2", note_type="note"))
 
-    # databases.create — только один раз; вторая заметка взяла DB из кэша,
-    # wrapper-page тоже не создавалась повторно.
+    # databases.create — только один раз; вторая заметка взяла DB из кэша.
     assert fake.databases.create.await_count == 1
-    # 1 wrapper + 2 note pages = 3 вызова pages.create.
-    assert fake.pages.create.await_count == 3
+    # 2 note pages = 2 вызова pages.create. Wrapper-page больше не создаётся.
+    assert fake.pages.create.await_count == 2

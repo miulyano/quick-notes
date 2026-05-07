@@ -4,18 +4,12 @@
 1. SQLite-кэш `notion_dbs` (заполняется этим резолвером после auto-create).
 2. `NOTION_DB_<WS>_<TYPE>` env (если форкер хочет руками задать конкретные DB).
 3. `NOTION_DB_<TYPE>` env / `NOTION_DATABASE_ID` (классический per-type fallback).
-4. Auto-create (two-step, зеркалит структуру `setup_buildin_dbs`):
-   если `NOTION_PARENT_PAGE_<WS>` задан —
-     a) `pages.create` создаёт wrapper-page внутри parent-page с plural-title
-        типа («📝 Заметки», «✅ Задачи», ...);
-     b) `databases.create` создаёт full-page DB внутри wrapper-page с тем
-        же title и схемой из `note_types.py`.
-   Сохраняет database_id в кэш. Wrapper page id логируется, но в кэше не
-   хранится — повторный hit идёт по cached database_id.
+4. Auto-create (one-step):
+   если `NOTION_PARENT_PAGE_<WS>` задан — `databases.create` создаёт full-page DB
+   прямо в parent-page воркспейса с plural-title типа («📝 Заметки», «✅ Задачи», ...)
+   и схемой из `note_types.py`. Notion рендерит full-page DB как страницу с
+   title и full-width таблицей — отдельная wrapper-page не нужна.
 5. Если parent-page не задан — возвращает None (sink упадёт с понятной ошибкой).
-
-Если `databases.create` упал после успешного `pages.create`, wrapper page
-останется orphan в Notion (в логе есть её id для ручной чистки).
 """
 
 from __future__ import annotations
@@ -51,20 +45,6 @@ def _property_schema(prop: NotionProperty) -> dict:
 
 def _section_title(note_type: NoteType) -> str:
     return _PLURAL_TITLES.get(note_type.key, note_type.label)
-
-
-def _build_section_page_payload(parent_page_id: str, note_type: NoteType) -> dict:
-    """Wrapper-page внутри workspace parent. Внутри неё потом создаётся
-    full-page DB. Зеркалит логику `scripts/setup_buildin_dbs._build_section_page_payload`."""
-    title = _section_title(note_type)
-    return {
-        "parent": {"type": "page_id", "page_id": parent_page_id},
-        "properties": {
-            "title": {
-                "title": [{"type": "text", "text": {"content": title}}],
-            }
-        },
-    }
 
 
 def _build_create_payload(parent_page_id: str, note_type: NoteType) -> dict:
@@ -111,7 +91,7 @@ async def resolve_or_create(
     if env_db:
         return env_db
 
-    # 4. auto-create
+    # 4. auto-create: one-step full-page DB прямо в parent-page воркспейса.
     parent_page_id = settings.notion_parent_page_id(workspace_key)
     if not parent_page_id:
         logger.warning(
@@ -126,55 +106,26 @@ async def resolve_or_create(
         )
         return None
 
-    # 4a. Wrapper-page (раздел внутри parent-page воркспейса).
-    page_payload = _build_section_page_payload(parent_page_id, note_type)
+    db_payload = _build_create_payload(parent_page_id, note_type)
     logger.info(
-        "creating Notion wrapper page: ws=%s type=%s parent=%s",
+        "creating Notion DB on demand: ws=%s type=%s parent=%s",
         workspace_key,
         note_type.key,
         parent_page_id,
     )
-    page_response = await client.pages.create(**page_payload)
-    wrapper_id = page_response.get("id") if isinstance(page_response, dict) else None
-    if not wrapper_id:
-        raise RuntimeError(
-            f"pages.create response missing id for ws={workspace_key} "
-            f"type={note_type.key}: {page_response!r}"
-        )
-
-    # 4b. Full-page DB внутри wrapper-page.
-    db_payload = _build_create_payload(wrapper_id, note_type)
-    logger.info(
-        "creating Notion DB on demand: ws=%s type=%s wrapper_page=%s",
-        workspace_key,
-        note_type.key,
-        wrapper_id,
-    )
-    try:
-        db_response = await client.databases.create(**db_payload)
-    except Exception:
-        logger.exception(
-            "databases.create failed (orphan wrapper page %s left in Notion) "
-            "ws=%s type=%s",
-            wrapper_id,
-            workspace_key,
-            note_type.key,
-        )
-        raise
+    db_response = await client.databases.create(**db_payload)
     db_id = db_response.get("id") if isinstance(db_response, dict) else None
     if not db_id:
         raise RuntimeError(
             f"databases.create response missing id for ws={workspace_key} "
-            f"type={note_type.key} (orphan wrapper page {wrapper_id} left in "
-            f"Notion): {db_response!r}"
+            f"type={note_type.key}: {db_response!r}"
         )
 
     await notion_dbs.put(workspace_key, note_type.key, db_id)
     logger.info(
-        "cached Notion DB ws=%s type=%s database_id=%s wrapper_page=%s",
+        "cached Notion DB ws=%s type=%s database_id=%s",
         workspace_key,
         note_type.key,
         db_id,
-        wrapper_id,
     )
     return db_id
