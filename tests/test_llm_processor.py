@@ -284,9 +284,12 @@ def test_system_prompt_includes_today_date():
 
 def test_system_prompt_instructs_meeting_date_in_title():
     prompt = llm_processor._build_system_prompt()
-    # Гайд по дате в title должен явно быть в промте.
-    assert "(YYYY-MM-DD)" in prompt
+    # В title — человеческий формат DD.MM.YYYY; properties.Date остаётся ISO (требование Notion API).
+    assert "(DD.MM.YYYY)" in prompt
+    assert "«Тема (DD.MM.YYYY)»" in prompt
     assert "properties.Date" in prompt
+    # title-формат не должен совпадать с ISO-форматом (старое поведение).
+    assert "«Тема (YYYY-MM-DD)»" not in prompt
 
 
 def test_system_prompt_sync_keeps_hierarchy_in_body():
@@ -295,3 +298,66 @@ def test_system_prompt_sync_keeps_hierarchy_in_body():
     # Старые structured-поля для sync убраны из инструкций.
     assert "extras.status_updates" not in prompt
     assert "extras.blockers" not in prompt
+
+
+async def test_process_force_meeting_kind_passes_hint(monkeypatch):
+    """Подсказка force_meeting_kind улетает в user-сообщение OpenAI."""
+    monkeypatch.setattr("bot.services.llm_processor.settings.OPENAI_API_KEY", "secret")
+
+    fake = MagicMock()
+    fake.chat = MagicMock()
+    fake.chat.completions = MagicMock()
+    fake.chat.completions.create = AsyncMock(
+        return_value=_fake_completion(
+            {
+                "type": "meeting",
+                "title": "Sync (08.05.2026)",
+                "properties": {"Date": "2026-05-08"},
+                "extras": {"kind": "sync"},
+                "markdown_body": "### Вася\n- A\n### Петя\n- B",
+            }
+        )
+    )
+    llm_processor.set_client(fake)
+
+    p = await llm_processor.process("команда обсудила", force_meeting_kind="sync")
+    assert p.note_type == "meeting"
+    assert p.extras["kind"] == "sync"
+
+    call_kwargs = fake.chat.completions.create.await_args.kwargs
+    user_msg = call_kwargs["messages"][1]["content"]
+    assert "[Hint:" in user_msg
+    assert 'extras.kind="sync"' in user_msg
+
+
+async def test_process_force_meeting_kind_overrides_llm_disagreement(monkeypatch):
+    """Если LLM проигнорировал подсказку — extras.kind форсится поверх ответа."""
+    monkeypatch.setattr("bot.services.llm_processor.settings.OPENAI_API_KEY", "secret")
+
+    fake = MagicMock()
+    fake.chat = MagicMock()
+    fake.chat.completions = MagicMock()
+    fake.chat.completions.create = AsyncMock(
+        return_value=_fake_completion(
+            {
+                "type": "meeting",
+                "title": "Митинг (08.05.2026)",
+                "properties": {"Date": "2026-05-08"},
+                "extras": {
+                    "kind": "meeting",
+                    "agenda": ["обсудить релиз"],
+                    "decisions": ["катим в пятницу"],
+                },
+                "markdown_body": "обсуждение",
+            }
+        )
+    )
+    llm_processor.set_client(fake)
+
+    p = await llm_processor.process("текст", force_meeting_kind="sync")
+    assert p.note_type == "meeting"
+    assert p.extras["kind"] == "sync"
+    # _render_sync — passthrough: agenda/decisions из extras в body не попадают.
+    assert "Agenda" not in p.formatted
+    assert "Decisions" not in p.formatted
+    assert "обсуждение" in p.formatted

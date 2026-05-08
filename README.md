@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.18.0-blue)
+![version](https://img.shields.io/badge/version-0.18.1-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -50,13 +50,17 @@ DB-properties — это **реф-пример**, не «единственны�
   `meeting` (kind=meeting) — секции Agenda / Decisions / Action items.
   Для `task` описание задачи (контекст, мотивация) пишется в `markdown_body`
   перед `## Чек-лист`. Для `meeting` / `1on1` LLM проставляет дату в
-  `properties.Date` и в title в скобках `(YYYY-MM-DD)`. Без
+  `properties.Date` (ISO-формат `YYYY-MM-DD`, требование Notion API) и в
+  title в скобках в человеческом формате `(DD.MM.YYYY)`. Без
   `OPENAI_API_KEY` — stub-fallback (тип `note`, workspace `personal`,
   тело = исходник).
 - Превью с кнопками: `💾 Save` / `✖ Cancel` сверху, `🔁 Type` /
   `📁 Workspace` ниже, ряд `✏️ Edit`. Для type=meeting добавляется ряд
   `🔄 Sync ↔ Meeting` для ручного переключения подвида; рядом с типом
-  показывается метка `(sync)` если kind=sync. Workspace и тип можно
+  показывается метка `(sync)` если kind=sync. Тап по тоглу запускает
+  повторный LLM-проход с подсказкой `force_meeting_kind`, чтобы тело
+  переразметить под нужный шаблон (Agenda/Decisions для meeting или
+  иерархический passthrough для sync). Workspace и тип можно
   переопределить вручную.
 - `✏️ Edit` открывает **Telegram Web App** — встроенную форму с
   предзаполненными title и body (полный текст из БД, без обрезки превью).
