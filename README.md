@@ -415,57 +415,45 @@ docker compose up --build
 
 ### Telegram Web App (правка через Mini App)
 
-Кнопка `✏️ Edit` открывает встроенную HTML-форму прямо в Telegram-клиенте.
-Чтобы это заработало, нужен поддомен с HTTPS, проксирующий на aiohttp-сервер
-бота (порт `WEBAPP_PORT`, default `8080`).
+Кнопка `✏️ Edit` в превью открывает встроенную HTML-форму прямо в
+Telegram-клиенте: title и body предзаполнены полным текстом из БД (без
+обрезки превью), сабмит обновляет то же preview-сообщение in-place. Без
+этой настройки кнопка скрыта, всё остальное работает как раньше.
 
-1. Заполнить `.env`:
+Что нужно сделать:
+
+1. **HTTPS-поддомен**, который проксирует на порт `WEBAPP_PORT` контейнера
+   бота (default `8080`). Reverse-proxy любой — nginx, Caddy, Traefik:
+   важно только TLS-termination и `proxy_pass http://<bot-host>:8080`.
+   Telegram WebApp-кнопки требуют HTTPS; порт у поддомена может быть
+   нестандартным (Telegram-клиенты принимают URL вида `https://host:port`).
+
+2. **`.env` бота**:
    ```
-   WEBAPP_BASE_URL=https://edit.example.com
+   WEBAPP_BASE_URL=https://<твой-поддомен>[:port]
    WEBAPP_BIND_HOST=0.0.0.0
    WEBAPP_PORT=8080
    ```
-   Если `WEBAPP_BASE_URL` пустой — кнопка `✏️ Edit` не показывается, aiohttp
-   не стартует, всё остальное работает как раньше.
+   Бот при старте увидит `WEBAPP_BASE_URL`, поднимет aiohttp-сервер
+   рядом с polling-ом и начнёт показывать кнопку `✏️ Edit` в превью.
 
-2. Поднять reverse-proxy на поддомене. Пример nginx:
-   ```nginx
-   server {
-       listen 443 ssl http2;
-       server_name edit.example.com;
-       # ssl_certificate / ssl_certificate_key — например через certbot
+3. **Сетевой доступ от reverse-proxy к контейнеру бота**. Если оба в
+   Docker — подключить контейнер бота к сети reverse-proxy (через
+   `docker-compose.override.yml` с `networks: { caddy_net: { external: true } }`
+   или аналогом). Если reverse-proxy на хосте — оставить `ports: ["8080:8080"]`
+   в `docker-compose.yml` и `proxy_pass` на `127.0.0.1:8080`.
 
-       location / {
-           proxy_pass http://127.0.0.1:8080;
-           proxy_set_header Host $host;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-       }
-   }
-   ```
-   Или Caddy (TLS автоматически):
-   ```
-   edit.example.com {
-       reverse_proxy 127.0.0.1:8080
-   }
-   ```
+4. **BotFather**: `/setdomain` → выбрать бота → ввести поддомен (без порта).
 
-3. В `docker-compose.yml` пробросить порт (см. блок `ports` в файле) или
-   прицепить контейнер к сети nginx-сервиса.
+5. **Liveness-check**: `GET https://<поддомен>/healthz` → `ok`.
 
-4. В BotFather:
-   ```
-   /setdomain → выбрать бота → ввести edit.example.com
-   ```
-   Без этого Telegram-клиенты блокируют WebApp-кнопку.
-
-5. Liveness-check: `GET https://edit.example.com/healthz` → `200 ok`.
-
-Архитектура: Telegram-клиент открывает `/edit?draft_id=X` с initData в
-заголовке (HMAC-подпись бот-токеном); aiohttp валидирует подпись и владельца
-draft, отдаёт `editor.html` с предзаполненными title/body. На сабмит фронт
-шлёт `POST /edit/submit` (тоже с initData), бэкенд обновляет draft и
-редактирует то же preview-сообщение через `bot.edit_message_text`.
+Под капотом: Telegram-клиент открывает `/edit?draft_id=X`, передаёт
+initData (HMAC-подпись бот-токеном); aiohttp валидирует подпись + владельца
+draft, отдаёт `editor.html` с инжектнутыми title/body. На «Сохранить» фронт
+шлёт `POST /edit/submit` (initData в заголовке `X-Telegram-Init-Data`),
+бэкенд обновляет draft и перерисовывает preview-сообщение через
+`bot.edit_message_text` по сохранённому `preview_msg_id` — без новых
+сообщений в чате.
 
 ### VPS (Ubuntu 22.04 / 24.04)
 
