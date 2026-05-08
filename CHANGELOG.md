@@ -4,6 +4,21 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Added
+- Правка title и body draft через Telegram Web App (Mini App). Тап
+  «✏️ Edit» в превью открывает форму с предзаполненным полным текстом
+  (без обрезки), сохранение обновляет то же preview-сообщение —
+  без перенабора текста и без новых сообщений в чате. Требует
+  `WEBAPP_BASE_URL` + reverse-proxy на поддомене (`/setdomain` в BotFather).
+  Новые env: `WEBAPP_BASE_URL`, `WEBAPP_BIND_HOST` (default `0.0.0.0`),
+  `WEBAPP_PORT` (default `8080`).
+
+### Removed
+- Старый текстовый флоу правки: подменю «📝 Title / 📄 Body», статусы
+  `awaiting_edit_title|awaiting_edit_body`, команда `/cancel`,
+  обработчики `bot/handlers/edit.py` и `drafts.find_awaiting_edit`.
+  Полностью заменено Web App-формой.
+
 ### Changed
 - STT-провайдер: AssemblyAI Universal-2 → OpenAI Speech-to-Text
   (`gpt-4o-mini-transcribe` по умолчанию, ~$0.003/мин и ~6% WER на русском;

@@ -3,6 +3,13 @@ services:
     build: .
     env_file: .env
     restart: unless-stopped
+    # Web App (Mini App) для правки draft. Если WEBAPP_BASE_URL пустой —
+    # порт всё равно открыт, но aiohttp-сервер не стартует и :8080 ничего
+    # не отвечает. Reverse-proxy (nginx/Caddy) на поддомене должен
+    # проксировать на этот порт. Меняй WEBAPP_PORT в .env вместе с этим
+    # mapping'ом, если нужен другой порт.
+    ports:
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/app/data
       - notes_tmp:/tmp/notes-bot

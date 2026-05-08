@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.17.0-blue)
+![version](https://img.shields.io/badge/version-0.18.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -58,10 +58,12 @@ DB-properties — это **реф-пример**, не «единственны�
   `🔄 Sync ↔ Meeting` для ручного переключения подвида; рядом с типом
   показывается метка `(sync)` если kind=sync. Workspace и тип можно
   переопределить вручную.
-- `✏️ Edit` → подменю `📝 Title` / `📄 Body`: правка заголовка и тела
-  черновика **до** Save без повторного LLM-вызова. Бот ждёт одно
-  сообщение с новым значением, перерисовывает превью, статус возвращается
-  в `awaiting_confirm`. `/cancel` — выход из режима правки.
+- `✏️ Edit` открывает **Telegram Web App** — встроенную форму с
+  предзаполненными title и body (полный текст из БД, без обрезки превью).
+  Юзер правит оба поля сразу, тапает «Сохранить» — то же самое
+  preview-сообщение в чате обновляется in-place, без новых сообщений
+  и без перенабора. Требует `WEBAPP_BASE_URL` (поддомен с HTTPS) и
+  `/setdomain` в BotFather; без env-переменной кнопка скрыта.
 - На Save — кладёт в outbox-очередь, фоновой воркер вызывает API провайдера
   (Buildin или Notion в зависимости от `NOTES_PROVIDER`).
 - **Routing**: per-(workspace × type) для Buildin (`BUILDIN_DB_<WS>_<TYPE>` →
@@ -332,7 +334,7 @@ python -m scripts.setup_buildin_dbs >> .env
 
 ```
 bot/
-├── main.py                # entry: init_db → buildin_health_check → recover_stuck → outbox worker → polling
+├── main.py                # entry: init_db → buildin_health_check → recover_stuck → outbox worker + webapp server → polling
 ├── config.py              # pydantic settings
 ├── handlers/
 │   ├── inputs.py          # text → draft → LLM → preview
@@ -346,6 +348,7 @@ bot/
 │   ├── llm_processor.py   # GPT-4o classify+format (один вызов) + map-reduce process_long + stub fallback
 │   ├── doc_extractor.py   # txt/md/csv/pdf/docx → plain text (pypdf, python-docx, stdlib)
 │   ├── notion_client.py   # compat-shim → sinks/notion.py
+│   ├── preview.py         # refresh_preview helper (in-place edit_message_text)
 │   ├── transcriber.py     # OpenAI Speech-to-Text (gpt-4o-mini-transcribe default)
 │   └── sinks/             # провайдеры хранилища заметок
 │       ├── __init__.py    # Sink Protocol
@@ -353,6 +356,10 @@ bot/
 │       ├── notion.py      # NotionSink — pages.create через notion-client (default)
 │       ├── buildin.py     # BuildinSink — httpx + Buildin API
 │       └── factory.py     # get_sink() по NOTES_PROVIDER
+├── web/                   # Telegram Web App (Mini App) для правки draft
+│   ├── auth.py            # validate_init_data — HMAC по схеме Telegram
+│   ├── server.py          # aiohttp: GET /edit, POST /edit/submit, GET /healthz
+│   └── static/editor.html # одностраничник: title + body, нативная MainButton
 ├── domain/
 │   ├── note_types.py      # 7 типов с properties + db_env + LLM-hints + select_options
 │   ├── workspaces.py      # реестр workspaces (personal/work/family/growth/ai_path)
@@ -405,6 +412,60 @@ docker compose up --build
 (хватает для документов, проходящих map-reduce), persistent volume
 `./data` → `/app/data` (SQLite-файл живёт между рестартами), healthcheck
 `SELECT 1` к БД и ротацию логов (10 МБ × 5 файлов).
+
+### Telegram Web App (правка через Mini App)
+
+Кнопка `✏️ Edit` открывает встроенную HTML-форму прямо в Telegram-клиенте.
+Чтобы это заработало, нужен поддомен с HTTPS, проксирующий на aiohttp-сервер
+бота (порт `WEBAPP_PORT`, default `8080`).
+
+1. Заполнить `.env`:
+   ```
+   WEBAPP_BASE_URL=https://edit.example.com
+   WEBAPP_BIND_HOST=0.0.0.0
+   WEBAPP_PORT=8080
+   ```
+   Если `WEBAPP_BASE_URL` пустой — кнопка `✏️ Edit` не показывается, aiohttp
+   не стартует, всё остальное работает как раньше.
+
+2. Поднять reverse-proxy на поддомене. Пример nginx:
+   ```nginx
+   server {
+       listen 443 ssl http2;
+       server_name edit.example.com;
+       # ssl_certificate / ssl_certificate_key — например через certbot
+
+       location / {
+           proxy_pass http://127.0.0.1:8080;
+           proxy_set_header Host $host;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+   }
+   ```
+   Или Caddy (TLS автоматически):
+   ```
+   edit.example.com {
+       reverse_proxy 127.0.0.1:8080
+   }
+   ```
+
+3. В `docker-compose.yml` пробросить порт (см. блок `ports` в файле) или
+   прицепить контейнер к сети nginx-сервиса.
+
+4. В BotFather:
+   ```
+   /setdomain → выбрать бота → ввести edit.example.com
+   ```
+   Без этого Telegram-клиенты блокируют WebApp-кнопку.
+
+5. Liveness-check: `GET https://edit.example.com/healthz` → `200 ok`.
+
+Архитектура: Telegram-клиент открывает `/edit?draft_id=X` с initData в
+заголовке (HMAC-подпись бот-токеном); aiohttp валидирует подпись и владельца
+draft, отдаёт `editor.html` с предзаполненными title/body. На сабмит фронт
+шлёт `POST /edit/submit` (тоже с initData), бэкенд обновляет draft и
+редактирует то же preview-сообщение через `bot.edit_message_text`.
 
 ### VPS (Ubuntu 22.04 / 24.04)
 
