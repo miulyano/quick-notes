@@ -92,12 +92,15 @@ def test_build_properties_fills_title_from_draft():
     assert "CreatedAt" in out
 
 
-def test_build_properties_uses_extracted_when_present():
+def test_build_properties_title_always_from_draft_ignoring_extracted():
+    """Title-property всегда из draft.title — LLM может класть «голую» тему
+    без даты-в-скобках в properties.<Name>, а draft.title содержит итоговый
+    заголовок страницы (включая `(DD.MM.YYYY)` для meeting/1on1)."""
     nt = _NoteType([_Prop("Name", "title"), _Prop("Status", "select")])
-    extracted = {"Name": "From LLM", "Status": "Todo"}
-    draft = _draft(properties_json=json.dumps(extracted), title="From draft")
+    extracted = {"Name": "From LLM (без даты)", "Status": "Todo"}
+    draft = _draft(properties_json=json.dumps(extracted), title="Тема (08.05.2026)")
     out = build_properties(nt, draft, shape="buildin")
-    assert out["Name"]["title"][0]["text"]["content"] == "From LLM"
+    assert out["Name"]["title"][0]["text"]["content"] == "Тема (08.05.2026)"
     assert out["Status"] == {"type": "select", "select": {"name": "Todo"}}
 
 

@@ -4,6 +4,12 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Fixed
+- Заголовок страницы в Notion для всех типов заметок теперь всегда берётся
+  из `draft.title` (включая `(DD.MM.YYYY)` для `meeting`/`1on1`). Раньше
+  LLM-овский `properties.Name` (без даты) перетирал `draft.title` —
+  итоговая страница в Notion получалась без даты в заголовке.
+
 ### Changed
 - Формат даты в title заметок типа `meeting` и `1on1`: `(YYYY-MM-DD)` →
   `(DD.MM.YYYY)`. Поле `properties.Date` остаётся в ISO 8601 (требование
