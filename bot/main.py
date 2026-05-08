@@ -11,7 +11,7 @@ from aiogram.enums import ParseMode
 from bot.config import settings
 from bot.domain.note_types import TYPES
 from bot.domain.workspaces import WORKSPACES
-from bot.handlers import callbacks, commands, documents, edit, inputs, voice
+from bot.handlers import callbacks, commands, documents, inputs, voice
 from bot.middlewares.auth import AuthMiddleware
 from bot.services import llm_processor
 from bot.services.sinks import PageRef
@@ -19,6 +19,7 @@ from bot.services.sinks import buildin as buildin_sink
 from bot.services.sinks import notion as notion_sink
 from bot.storage import db, drafts
 from bot.storage.drafts import Draft
+from bot.web.server import run_server as run_webapp_server
 from bot.workers import outbox_worker
 
 
@@ -160,7 +161,6 @@ async def main() -> None:
     dp.include_router(callbacks.router)
     dp.include_router(voice.router)
     dp.include_router(documents.router)
-    dp.include_router(edit.router)
     dp.include_router(inputs.router)
 
     on_saved, on_failed = _make_save_callbacks(bot)
@@ -168,6 +168,14 @@ async def main() -> None:
     worker_task = asyncio.create_task(
         outbox_worker.run(stop_event, on_saved=on_saved, on_failed=on_failed)
     )
+
+    webapp_task: asyncio.Task | None = None
+    if settings.webapp_enabled:
+        webapp_task = asyncio.create_task(
+            run_webapp_server(bot, settings, stop_event=stop_event)
+        )
+    else:
+        logger.info("WEBAPP_BASE_URL не задан — Web App отключен, кнопка ✏️ Edit скрыта")
 
     logging.info("Bot started. Allowed users: %s", settings.allowed_user_ids)
     try:
@@ -190,6 +198,10 @@ async def main() -> None:
                 await worker_task
         except asyncio.CancelledError:
             pass
+        if webapp_task is not None:
+            webapp_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await webapp_task
         await llm_processor.close_client()
         await buildin_sink.close()
         await notion_sink.close()

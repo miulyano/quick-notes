@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     FORCE_LANGUAGE_CODE: Optional[str] = None
     TEMP_DIR: str = "/tmp/notes-bot"
 
+    # Web App (Mini App) для правки draft в чате. Если WEBAPP_BASE_URL пуст —
+    # кнопка «✏️ Edit» не показывается, aiohttp-сервер не стартует.
+    # Поддомен должен быть зарегистрирован в BotFather через /setdomain.
+    WEBAPP_BASE_URL: Optional[str] = None
+    WEBAPP_BIND_HOST: str = "0.0.0.0"
+    WEBAPP_PORT: int = 8080
+
+    @property
+    def webapp_enabled(self) -> bool:
+        return bool(self.WEBAPP_BASE_URL)
+
     @cached_property
     def allowed_user_ids(self) -> list[int]:
         return [int(uid.strip()) for uid in self.ALLOWED_USER_IDS.split(",") if uid.strip()]

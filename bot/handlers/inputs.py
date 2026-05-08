@@ -6,8 +6,14 @@ import json
 import logging
 
 from aiogram import F, Router
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    WebAppInfo,
+)
 
+from bot.config import settings
 from bot.domain.note_types import get as get_note_type
 from bot.domain.workspaces import get as get_workspace
 from bot.services import llm_processor
@@ -33,10 +39,18 @@ def preview_keyboard(draft_id: str, *, show_kind_toggle: bool = False) -> Inline
             InlineKeyboardButton(text="🔁 Type", callback_data=f"chtype:{draft_id}"),
             InlineKeyboardButton(text="📁 Workspace", callback_data=f"chws:{draft_id}"),
         ],
-        [
-            InlineKeyboardButton(text="✏️ Edit", callback_data=f"edit:{draft_id}"),
-        ],
     ]
+    if settings.webapp_enabled:
+        # WebApp-кнопка открывает Mini App с предзаполненной формой правки.
+        # Без WEBAPP_BASE_URL — кнопка скрыта (флоу правки временно недоступен).
+        edit_url = f"{settings.WEBAPP_BASE_URL.rstrip('/')}/edit?draft_id={draft_id}"
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✏️ Edit", web_app=WebAppInfo(url=edit_url)
+                ),
+            ]
+        )
     if show_kind_toggle:
         rows.append(
             [InlineKeyboardButton(text="🔄 Sync ↔ Meeting", callback_data=f"togglekind:{draft_id}")]
