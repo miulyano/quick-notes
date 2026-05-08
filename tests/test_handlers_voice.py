@@ -6,7 +6,7 @@ import pytest
 
 from bot.handlers.voice import handle_media
 from bot.services import llm_processor
-from bot.services.transcriber import TranscriptionResult, Utterance
+from bot.services.transcriber import TranscriptionResult
 from bot.storage import drafts
 
 
@@ -59,8 +59,8 @@ def _reset():
     llm_processor.set_client(None)
 
 
-async def test_disabled_assemblyai_short_circuits(fresh_db, monkeypatch, patch_progress):
-    monkeypatch.setattr("bot.handlers.voice.settings.ASSEMBLYAI_API_KEY", None)
+async def test_disabled_openai_short_circuits(fresh_db, monkeypatch, patch_progress):
+    monkeypatch.setattr("bot.handlers.voice.settings.OPENAI_API_KEY", None)
     bot = MagicMock()
     msg = _voice_message()
 
@@ -72,20 +72,23 @@ async def test_disabled_assemblyai_short_circuits(fresh_db, monkeypatch, patch_p
 
 
 async def test_happy_path(fresh_db, monkeypatch, patch_progress, tmp_path):
-    monkeypatch.setattr("bot.handlers.voice.settings.ASSEMBLYAI_API_KEY", "test-key")
+    monkeypatch.setattr("bot.handlers.voice.settings.OPENAI_API_KEY", "test-key")
     monkeypatch.setattr("bot.handlers.voice.settings.TEMP_DIR", str(tmp_path))
 
     async def fake_transcribe(path, *, on_fraction=None):
-        return TranscriptionResult(
-            text="Hello world",
-            utterances=[Utterance("A", "Hello world", 0, 1000)],
-            speaker_count=1,
-            language="en",
-        )
+        return TranscriptionResult(text="Hello world", language="en")
 
     monkeypatch.setattr("bot.handlers.voice.transcriber.transcribe", fake_transcribe)
-    # llm_processor stub kicks in if OPENAI_API_KEY is empty.
-    monkeypatch.setattr("bot.services.llm_processor.settings.OPENAI_API_KEY", None)
+
+    # Stub llm_processor directly: одна и та же настройка OPENAI_API_KEY
+    # включает и транскрибатор, и LLM, поэтому отключить LLM через settings
+    # больше нельзя — мокаем процессор напрямую.
+    from bot.services.llm_processor import ProcessedNote
+
+    async def fake_process(text):
+        return ProcessedNote(note_type="note", title=text, formatted=text)
+
+    monkeypatch.setattr("bot.handlers.voice.llm_processor.process", fake_process)
 
     bot = MagicMock()
     bot.download = AsyncMock()
@@ -107,7 +110,7 @@ async def test_happy_path(fresh_db, monkeypatch, patch_progress, tmp_path):
 async def test_download_failure_keeps_draft_with_file_id(
     fresh_db, monkeypatch, patch_progress, tmp_path
 ):
-    monkeypatch.setattr("bot.handlers.voice.settings.ASSEMBLYAI_API_KEY", "test-key")
+    monkeypatch.setattr("bot.handlers.voice.settings.OPENAI_API_KEY", "test-key")
     monkeypatch.setattr("bot.handlers.voice.settings.TEMP_DIR", str(tmp_path))
 
     bot = MagicMock()
@@ -128,11 +131,11 @@ async def test_download_failure_keeps_draft_with_file_id(
 async def test_transcribe_failure_keeps_file_id_for_retry(
     fresh_db, monkeypatch, patch_progress, tmp_path
 ):
-    monkeypatch.setattr("bot.handlers.voice.settings.ASSEMBLYAI_API_KEY", "test-key")
+    monkeypatch.setattr("bot.handlers.voice.settings.OPENAI_API_KEY", "test-key")
     monkeypatch.setattr("bot.handlers.voice.settings.TEMP_DIR", str(tmp_path))
 
     async def boom(*_a, **_kw):
-        raise RuntimeError("AssemblyAI down")
+        raise RuntimeError("OpenAI down")
 
     monkeypatch.setattr("bot.handlers.voice.transcriber.transcribe", boom)
 
@@ -146,5 +149,5 @@ async def test_transcribe_failure_keeps_file_id_for_retry(
     assert len(items) == 1
     d = items[0]
     assert d.status == "raw"
-    assert d.error and "AssemblyAI" in d.error
+    assert d.error and "OpenAI" in d.error
     assert d.kind == "voice"
