@@ -82,7 +82,7 @@
 </main>
 
 <script>
-(function () {
+(async function () {
   const tg = window.Telegram && window.Telegram.WebApp;
   if (!tg) {
     document.body.textContent = "Эта страница работает только внутри Telegram.";
@@ -91,48 +91,66 @@
   tg.ready();
   tg.expand();
 
-  const init = window.__INIT__ || {};
   const headerEl = document.getElementById("header");
   const titleEl = document.getElementById("title");
   const bodyEl = document.getElementById("body");
 
+  const params = new URLSearchParams(window.location.search);
+  const draftId = params.get("draft_id");
+  if (!draftId) {
+    tg.showAlert("Нет draft_id в URL");
+    return;
+  }
+
   const wsLabels = {
-    personal: "personal",
-    work: "work",
-    family: "family",
-    growth: "growth",
-    ai_path: "ai_path",
+    personal: "personal", work: "work", family: "family",
+    growth: "growth", ai_path: "ai_path",
   };
   const typeIcons = {
-    note: "📝",
-    task: "✅",
-    idea: "💡",
-    meeting: "🗓️",
-    "1on1": "👥",
+    note: "📝", task: "✅", idea: "💡", meeting: "🗓️", "1on1": "👥",
   };
-  const wsLabel = wsLabels[init.workspace] || init.workspace || "";
-  const typeIcon = typeIcons[init.note_type] || "📝";
-  const typeLabel = init.note_type || "note";
-  headerEl.textContent = `📁 ${wsLabel} · ${typeIcon} ${typeLabel}`;
 
-  titleEl.value = init.title || "";
-  bodyEl.value = init.body || "";
+  const mainBtn = tg.MainButton;
+  mainBtn.setText("Сохранить");
+  const backBtn = tg.BackButton;
+  backBtn.show();
+  backBtn.onClick(() => tg.close());
 
   function autogrow(el) {
     el.style.height = "auto";
     el.style.height = el.scrollHeight + "px";
   }
-  autogrow(bodyEl);
   bodyEl.addEventListener("input", () => autogrow(bodyEl));
 
-  const mainBtn = tg.MainButton;
-  mainBtn.setText("Сохранить");
+  // Догружаем title/body из бэкенда: initData доступна только тут, в JS,
+  // т.к. Telegram передаёт её через URL-fragment.
+  let state;
+  try {
+    const r = await fetch("/edit/state?draft_id=" + encodeURIComponent(draftId), {
+      headers: { "X-Telegram-Init-Data": tg.initData },
+    });
+    if (!r.ok) {
+      let msg = `Ошибка ${r.status}`;
+      try { const j = await r.json(); if (j && j.error) msg = j.error; } catch (_) {}
+      tg.showAlert(msg);
+      return;
+    }
+    state = await r.json();
+  } catch (e) {
+    tg.showAlert("Сеть недоступна.");
+    return;
+  }
+
+  const wsLabel = wsLabels[state.workspace] || state.workspace || "";
+  const typeIcon = typeIcons[state.note_type] || "📝";
+  const typeLabel = state.note_type || "note";
+  headerEl.textContent = `📁 ${wsLabel} · ${typeIcon} ${typeLabel}`;
+  titleEl.value = state.title || "";
+  bodyEl.value = state.body || "";
+  autogrow(bodyEl);
+
   mainBtn.show();
   mainBtn.enable();
-
-  const backBtn = tg.BackButton;
-  backBtn.show();
-  backBtn.onClick(() => tg.close());
 
   let busy = false;
   async function submit() {
@@ -147,17 +165,14 @@
           "X-Telegram-Init-Data": tg.initData,
         },
         body: JSON.stringify({
-          draft_id: init.draft_id,
+          draft_id: draftId,
           title: titleEl.value,
           body: bodyEl.value,
         }),
       });
       if (!r.ok) {
         let msg = `Ошибка ${r.status}`;
-        try {
-          const j = await r.json();
-          if (j && j.error) msg = j.error;
-        } catch (_) {}
+        try { const j = await r.json(); if (j && j.error) msg = j.error; } catch (_) {}
         tg.HapticFeedback.notificationOccurred("error");
         tg.showAlert(msg);
         return;

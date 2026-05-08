@@ -9,7 +9,7 @@ import hmac
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 import pytest
 import pytest_asyncio
@@ -189,44 +189,66 @@ async def test_submit_invalid_payload_returns_400(client):
     assert resp.status == 400
 
 
-async def test_editor_get_returns_html_with_init(client):
-    draft_id = await _mk_draft(user_id=111)
-    init_data = _make_init_data(user_id=111)
-    resp = await client.get(
-        "/edit",
-        params={"draft_id": draft_id, "_auth": init_data},
-    )
+async def test_editor_get_returns_static_html(client):
+    """GET /edit отдаёт статичный HTML без auth — initData доступна только в JS."""
+    resp = await client.get("/edit", params={"draft_id": "anything"})
     assert resp.status == 200
     assert resp.content_type == "text/html"
     text = await resp.text()
-    assert "window.__INIT__" in text
-    assert "старый заголовок" in text
-    assert "старое тело" in text
-    assert draft_id in text
+    assert "Telegram.WebApp" in text or "telegram-web-app.js" in text
+    # Никаких драфтовых данных в HTML — они догружаются через /edit/state.
+    assert "старый заголовок" not in text
 
 
-async def test_editor_get_without_init_data_returns_401(client):
+async def test_state_returns_draft_data(client):
+    draft_id = await _mk_draft(user_id=111)
+    init_data = _make_init_data(user_id=111)
+    resp = await client.get(
+        "/edit/state",
+        params={"draft_id": draft_id},
+        headers={"X-Telegram-Init-Data": init_data},
+    )
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["draft_id"] == draft_id
+    assert data["title"] == "старый заголовок"
+    assert data["body"] == "старое тело"
+    assert data["note_type"] == "note"
+
+
+async def test_state_without_init_data_returns_401(client):
     draft_id = await _mk_draft()
-    resp = await client.get("/edit", params={"draft_id": draft_id})
+    resp = await client.get("/edit/state", params={"draft_id": draft_id})
     assert resp.status == 401
 
 
-async def test_editor_get_foreign_user_returns_403(client):
+async def test_state_foreign_user_returns_403(client):
     draft_id = await _mk_draft(user_id=111)
     init_data = _make_init_data(user_id=222)
     resp = await client.get(
-        "/edit",
-        params={"draft_id": draft_id, "_auth": init_data},
+        "/edit/state",
+        params={"draft_id": draft_id},
+        headers={"X-Telegram-Init-Data": init_data},
     )
     assert resp.status == 403
 
 
-async def test_editor_get_missing_draft_returns_404(client):
+async def test_state_missing_draft_returns_404(client):
     init_data = _make_init_data(user_id=111)
     resp = await client.get(
-        "/edit", params={"draft_id": "missing", "_auth": init_data}
+        "/edit/state",
+        params={"draft_id": "missing"},
+        headers={"X-Telegram-Init-Data": init_data},
     )
     assert resp.status == 404
+
+
+async def test_state_missing_draft_id_returns_400(client):
+    init_data = _make_init_data(user_id=111)
+    resp = await client.get(
+        "/edit/state", headers={"X-Telegram-Init-Data": init_data}
+    )
+    assert resp.status == 400
 
 
 async def test_healthz_returns_200(client):
@@ -235,8 +257,9 @@ async def test_healthz_returns_200(client):
     assert (await resp.text()) == "ok"
 
 
-async def test_editor_html_escapes_script_in_body(client):
-    """XSS-защита: </script> внутри title/body не должен ломать HTML."""
+async def test_state_returns_long_body_intact(client):
+    """Длинный body (>4096 символов) должен прийти из /edit/state без обрезки."""
+    long_text = "ё" * 10000
     draft_id = await drafts.create(
         user_id=111, chat_id=42, message_id=1, kind="text", raw_payload="x"
     )
@@ -244,18 +267,15 @@ async def test_editor_html_escapes_script_in_body(client):
         draft_id,
         status="awaiting_confirm",
         note_type="note",
-        title="</script><script>alert(1)</script>",
-        formatted="bod</script>y",
+        title="t",
+        formatted=long_text,
     )
     init_data = _make_init_data(user_id=111)
     resp = await client.get(
-        "/edit", params={"draft_id": draft_id, "_auth": init_data}
+        "/edit/state",
+        params={"draft_id": draft_id},
+        headers={"X-Telegram-Init-Data": init_data},
     )
-    text = await resp.text()
-    # Внутри инжектнутого <script>window.__INIT__=...</script> не должно
-    # быть «голого» </script> — все случаи должны быть экранированы как <\/script>.
-    init_block_start = text.index("window.__INIT__")
-    init_block = text[init_block_start:]
-    init_payload = init_block.split("</script>", 1)[0]
-    assert "</script>" not in init_payload
-    assert "<\\/script>" in init_payload
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["body"] == long_text

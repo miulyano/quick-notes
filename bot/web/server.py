@@ -1,23 +1,30 @@
 """aiohttp Web App для правки draft через Telegram Mini App.
 
 Эндпойнты:
-  GET  /edit?draft_id=X  → editor.html с инжектнутым __INIT__ (title/body/...).
+  GET  /edit?draft_id=X  → editor.html (статика, без auth — initData становится
+                            доступна только после загрузки telegram-web-app.js
+                            на клиенте).
+  GET  /edit/state?draft_id=X → JSON {title,body,workspace,note_type}.
+                            Авторизация: X-Telegram-Init-Data в заголовке.
   POST /edit/submit      → JSON {draft_id,title,body}, обновляет draft и
-                            редактирует preview-сообщение в чате.
+                            редактирует preview-сообщение в чате. Авторизация
+                            та же.
   GET  /healthz          → 200 ok (для liveness check).
 
-Аутентификация: Telegram WebApp initData передаётся через query (`tgwebappdata`)
-для GET и через заголовок `X-Telegram-Init-Data` для POST. Подпись проверяется
-HMAC по схеме Telegram (см. bot/web/auth.py).
+Telegram передаёт initData через URL-fragment (`#tgWebAppData=...`), который
+никогда не достигает сервера; JS-библиотека `telegram-web-app.js` парсит его
+в `Telegram.WebApp.initData`. Поэтому первый GET /edit идёт без initData
+(статичный HTML), а данные draft фронт догружает через `/edit/state` с
+заголовком `X-Telegram-Init-Data`. Подпись валидируется HMAC по схеме
+Telegram (см. bot/web/auth.py).
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from aiogram import Bot
 from aiohttp import web
@@ -25,7 +32,6 @@ from aiohttp import web
 from bot.config import Settings
 from bot.services.preview import refresh_preview
 from bot.storage import drafts
-from bot.storage.drafts import Draft
 from bot.web.auth import validate_init_data
 
 
@@ -34,65 +40,33 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 EDITOR_TEMPLATE_PATH = STATIC_DIR / "editor.html"
 
-# Заголовок initData в POST-запросах.
+# Заголовок initData во всех data-запросах (state/submit).
 INIT_DATA_HEADER = "X-Telegram-Init-Data"
-# Query-параметр initData в GET-запросах. Telegram Web App не передаёт initData
-# автоматически в URL — клиент сам подставляет его через JS перед навигацией.
-# В нашем случае editor.html сам подключает <script>telegram-web-app.js</script>
-# и читает initData в браузере, поэтому GET /edit может быть **без** initData
-# и просто отдаёт HTML-шаблон. Реальная защита — на POST /edit/submit, где
-# отказ невалидному initData блокирует запись.
-INIT_DATA_QUERY_PARAM = "_auth"
-
-
-def _injected_init(payload: dict[str, Any]) -> str:
-    """Инжектит payload в editor.html как window.__INIT__.
-
-    JSON-encode + замена `</` на `<\\/` чтобы не сломать HTML, если в title/body
-    окажется буквальная последовательность `</script>`.
-    """
-    encoded = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    return f"<script>window.__INIT__ = {encoded};</script>"
-
-
-def _render_editor(draft: Draft) -> str:
-    template = EDITOR_TEMPLATE_PATH.read_text(encoding="utf-8")
-    payload = {
-        "draft_id": draft.id,
-        "title": draft.title or "",
-        "body": draft.formatted or "",
-        "workspace": draft.workspace,
-        "note_type": draft.note_type or "note",
-    }
-    init_script = _injected_init(payload)
-    # Вставляем сразу перед закрывающим </body> чтобы скрипт editor.html
-    # (он идёт ниже) увидел window.__INIT__ при инициализации.
-    marker = "</main>"
-    if marker in template:
-        return template.replace(marker, marker + "\n" + init_script, 1)
-    # Fallback: перед </body>.
-    return template.replace("</body>", init_script + "\n</body>", 1)
 
 
 async def _read_init_data(request: web.Request) -> Optional[dict]:
-    """Извлечь и провалидировать initData из запроса. None если невалидно."""
+    """Извлечь и провалидировать initData из заголовка. None если невалидно."""
     bot_token: str = request.app["bot_token"]
     init_data = request.headers.get(INIT_DATA_HEADER)
-    if not init_data:
-        init_data = request.query.get(INIT_DATA_QUERY_PARAM)
     if not init_data:
         return None
     return validate_init_data(init_data, bot_token)
 
 
 async def handle_editor(request: web.Request) -> web.Response:
-    """GET /edit?draft_id=X — отдаёт HTML с предзаполненной формой.
+    """GET /edit?draft_id=X — отдаёт статичный HTML.
 
-    initData в GET опциональна: если есть и валидна — проверяем владельца и
-    отдаём конкретный draft; если нет — отдаём 401, чтобы случайные открытия
-    URL без Telegram-контекста не светили чужие данные. (Браузер без Telegram
-    initData увидит 401 — это намеренно.)
+    Авторизации тут нет: Telegram передаёт initData через URL-fragment, а
+    он не доходит до сервера. Реальная защита — на /edit/state и /edit/submit
+    (initData в заголовке X-Telegram-Init-Data, выставляется фронтом после
+    `Telegram.WebApp.ready()`).
     """
+    html = EDITOR_TEMPLATE_PATH.read_text(encoding="utf-8")
+    return web.Response(text=html, content_type="text/html", charset="utf-8")
+
+
+async def handle_state(request: web.Request) -> web.Response:
+    """GET /edit/state?draft_id=X — JSON c title/body/workspace/note_type."""
     draft_id = request.query.get("draft_id")
     if not draft_id:
         return web.json_response({"error": "draft_id required"}, status=400)
@@ -109,8 +83,15 @@ async def handle_editor(request: web.Request) -> web.Response:
     if user_id != draft.user_id:
         return web.json_response({"error": "forbidden"}, status=403)
 
-    html = _render_editor(draft)
-    return web.Response(text=html, content_type="text/html", charset="utf-8")
+    return web.json_response(
+        {
+            "draft_id": draft.id,
+            "title": draft.title or "",
+            "body": draft.formatted or "",
+            "workspace": draft.workspace,
+            "note_type": draft.note_type or "note",
+        }
+    )
 
 
 async def handle_submit(request: web.Request) -> web.Response:
@@ -166,6 +147,7 @@ def build_app(bot: Bot, settings: Settings) -> web.Application:
     app["bot"] = bot
     app["bot_token"] = settings.BOT_TOKEN
     app.router.add_get("/edit", handle_editor)
+    app.router.add_get("/edit/state", handle_state)
     app.router.add_post("/edit/submit", handle_submit)
     app.router.add_get("/healthz", handle_health)
     return app
