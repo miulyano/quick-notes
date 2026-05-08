@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.15.4-blue)
+![version](https://img.shields.io/badge/version-0.16.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -76,7 +76,9 @@ DB-properties — это **реф-пример**, не «единственны�
   Для Buildin длинные заметки (>100 блоков) дописываются чанками по 100
   через `PATCH /v1/blocks/{page_id}/children`.
 - На успех — атомарно `idempotency.insert + drafts.delete + outbox.delete`.
-  Превью редактируется в «✅ Сохранено в Buildin/Notion».
+  Превью редактируется в «✅ Открыть в Buildin/Notion» с прямой ссылкой
+  на созданную страницу (если провайдер вернул `url`); иначе — fallback
+  на `<code>page_id</code>`.
 - На ошибку — экспоненциальный backoff. После `MAX_ATTEMPTS` черновик
   помечается `failed`, остаётся видимым через `/list`.
 - При `NOTES_PROVIDER=buildin` бот на старте делает health-check

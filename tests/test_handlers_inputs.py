@@ -24,6 +24,18 @@ def _make_message(text: str, user_id: int = 111, chat_id: int = 999):
     sent = MagicMock()
     sent.message_id = 4242
     msg.answer = AsyncMock(return_value=sent)
+
+    # ProgressReporter создаёт status-сообщение через message.reply и затем
+    # дёргает bot.edit_message_text / delete_message по его id.
+    status = MagicMock()
+    status.chat.id = chat_id
+    status.message_id = 7777
+    status.text = ""
+    msg.reply = AsyncMock(return_value=status)
+    msg.bot = MagicMock()
+    msg.bot.edit_message_text = AsyncMock()
+    msg.bot.delete_message = AsyncMock()
+    msg.bot.send_message = AsyncMock(return_value=status)
     return msg
 
 

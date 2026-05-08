@@ -35,7 +35,7 @@ from typing import Any, Optional
 
 from bot.config import settings
 from bot.domain.note_types import get as get_note_type
-from bot.services.sinks import FailureInjector
+from bot.services.sinks import FailureInjector, PageRef
 from bot.services.sinks._notion_resolver import resolve_or_create
 from bot.services.sinks._properties import build_properties as _build_properties
 from bot.storage.drafts import Draft
@@ -100,7 +100,7 @@ class NotionSink:
         self._clients_real[workspace_key] = client
         return client
 
-    async def _create_page_stub(self, draft: Draft) -> str:
+    async def _create_page_stub(self, draft: Draft) -> PageRef:
         page_id = f"stub-page-{uuid.uuid4().hex[:8]}"
         logger.info(
             "STUB notion.create_page draft_id=%s type=%s title=%r body_len=%d page_id=%s",
@@ -110,9 +110,9 @@ class NotionSink:
             len(draft.formatted or ""),
             page_id,
         )
-        return page_id
+        return PageRef(id=page_id, url=None)
 
-    async def _create_page_real(self, draft: Draft) -> str:
+    async def _create_page_real(self, draft: Draft) -> PageRef:
         note_type = get_note_type(draft.note_type or "")
         workspace_key = draft.workspace or "personal"
         client = self._get_client(workspace_key)
@@ -144,9 +144,9 @@ class NotionSink:
             properties=properties,
             children=blocks,
         )
-        return response["id"]
+        return PageRef(id=response["id"], url=response.get("url"))
 
-    async def create_page(self, draft: Draft) -> str:
+    async def create_page(self, draft: Draft) -> PageRef:
         if self._failure_injector is not None:
             await self._failure_injector(draft)
         if settings.notion_enabled:
@@ -168,7 +168,7 @@ def set_client(client: Any) -> None:
     _sink.set_client(client)
 
 
-async def create_page(draft: Draft) -> str:
+async def create_page(draft: Draft) -> PageRef:
     return await _sink.create_page(draft)
 
 

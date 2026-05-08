@@ -8,6 +8,7 @@ import logging
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.config import settings
 from bot.domain.note_types import TYPES
 from bot.domain.workspaces import WORKSPACES
 from bot.handlers.inputs import format_preview, preview_keyboard
@@ -61,10 +62,13 @@ async def on_save(cb: CallbackQuery) -> None:
         return
     await drafts.update(draft_id, status="saving")
     await outbox.enqueue(draft_id)
-    await cb.answer("⏳ Сохраняю…")
+    await cb.answer()
     if cb.message is not None:
+        provider_label = "Buildin" if settings.NOTES_PROVIDER == "buildin" else "Notion"
         try:
-            await cb.message.edit_reply_markup(reply_markup=None)
+            await cb.message.edit_text(
+                f"⏳ Сохраняю в {provider_label}…", reply_markup=None
+            )
         except Exception:
             pass
 

@@ -69,8 +69,9 @@ async def test_create_page_buildin_shape(monkeypatch):
     client = httpx.AsyncClient(base_url="https://api.buildin.ai", transport=transport)
     buildin_sink.set_client(client)
 
-    page_id = await buildin_sink.create_page(_draft(formatted="# H1\n\npara"))
-    assert page_id == "page-123"
+    page_ref = await buildin_sink.create_page(_draft(formatted="# H1\n\npara"))
+    assert page_ref.id == "page-123"
+    assert page_ref.url == "https://buildin.ai/p/123"
 
     assert captured["method"] == "POST"
     assert captured["path"] == "/v1/pages"
@@ -155,8 +156,9 @@ async def test_no_database_configured_raises(monkeypatch):
 async def test_stub_when_no_token(monkeypatch):
     monkeypatch.setattr("bot.services.sinks.buildin.settings.BUILDIN_TOKEN", None)
 
-    page_id = await buildin_sink.create_page(_draft())
-    assert page_id.startswith("stub-page-")
+    page_ref = await buildin_sink.create_page(_draft())
+    assert page_ref.id.startswith("stub-page-")
+    assert page_ref.url is None
 
 
 async def test_users_me_validates_via_get(monkeypatch):

@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import os
 from contextlib import suppress
@@ -13,6 +14,7 @@ from bot.domain.workspaces import WORKSPACES
 from bot.handlers import callbacks, commands, documents, edit, inputs, voice
 from bot.middlewares.auth import AuthMiddleware
 from bot.services import llm_processor
+from bot.services.sinks import PageRef
 from bot.services.sinks import buildin as buildin_sink
 from bot.services.sinks import notion as notion_sink
 from bot.storage import db, drafts
@@ -101,15 +103,21 @@ async def _recover_stuck_drafts() -> None:
 
 
 def _make_save_callbacks(bot: Bot):
-    async def on_saved(draft: Draft, page_id: str) -> None:
+    async def on_saved(draft: Draft, page_ref: PageRef) -> None:
         if draft.preview_msg_id is None:
             return
         provider_label = "Buildin" if settings.NOTES_PROVIDER == "buildin" else "Notion"
+        if page_ref.url:
+            url_attr = html.escape(page_ref.url, quote=True)
+            text = f'✅ <a href="{url_attr}">Открыть в {provider_label}</a>'
+        else:
+            text = f"✅ Сохранено в {provider_label}\n<code>{page_ref.id}</code>"
         with suppress(Exception):
             await bot.edit_message_text(
                 chat_id=draft.chat_id,
                 message_id=draft.preview_msg_id,
-                text=f"✅ Сохранено в {provider_label}\n<code>{page_id}</code>",
+                text=text,
+                disable_web_page_preview=True,
             )
 
     async def on_failed(draft: Draft, error: str) -> None:

@@ -53,8 +53,9 @@ async def test_stub_when_no_token(fresh_db, monkeypatch):
     # Per-WS токены тоже должны быть пусты для stub-режима.
     for ws in ("PERSONAL", "WORK", "FAMILY", "GROWTH", "AI_PATH"):
         monkeypatch.delenv(f"NOTION_TOKEN_{ws}", raising=False)
-    page_id = await notion_client.create_page(_draft())
-    assert page_id.startswith("stub-page-")
+    page_ref = await notion_client.create_page(_draft())
+    assert page_ref.id.startswith("stub-page-")
+    assert page_ref.url is None
 
 
 async def test_per_workspace_token_used(fresh_db, monkeypatch):
@@ -279,6 +280,23 @@ async def test_lazy_one_step_create_when_only_parent_page_set(fresh_db, monkeypa
     assert fake.pages.create.await_count == 1
     note_call = fake.pages.create.await_args
     assert note_call.kwargs["parent"] == {"database_id": "auto-created-db"}
+
+
+async def test_create_page_returns_url_from_response(fresh_db, monkeypatch):
+    """Notion API returns `url` in pages.create — должен прокидываться в PageRef."""
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "k")
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", "db")
+
+    fake = MagicMock()
+    fake.pages = MagicMock()
+    fake.pages.create = AsyncMock(
+        return_value={"id": "page-id-x", "url": "https://www.notion.so/page-id-x"}
+    )
+    notion_client.set_client(fake)
+
+    page_ref = await notion_client.create_page(_draft(note_type="note"))
+    assert page_ref.id == "page-id-x"
+    assert page_ref.url == "https://www.notion.so/page-id-x"
 
 
 async def test_lazy_create_caches_for_subsequent_calls(fresh_db, monkeypatch):
