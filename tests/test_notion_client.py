@@ -257,6 +257,54 @@ async def test_truncates_excess_blocks(fresh_db, monkeypatch):
     assert len(blocks) == 5
 
 
+async def test_image_blocks_prepended_from_extras(fresh_db, monkeypatch):
+    """`extras_json.image_urls` → image-блоки идут перед body в children."""
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "k")
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", "db")
+
+    fake = MagicMock()
+    fake.pages = MagicMock()
+    fake.pages.create = AsyncMock(return_value={"id": "p"})
+    notion_client.set_client(fake)
+
+    draft = _draft(note_type="note", formatted="text body")
+    draft.extras_json = json.dumps(
+        {"image_urls": ["https://api.telegram.org/file/bot/x/a.jpg",
+                        "https://api.telegram.org/file/bot/x/b.jpg"]}
+    )
+
+    await notion_client.create_page(draft)
+
+    children = fake.pages.create.await_args.kwargs["children"]
+    assert children[0]["type"] == "image"
+    assert children[0]["image"]["external"]["url"].endswith("a.jpg")
+    assert children[1]["type"] == "image"
+    assert children[1]["image"]["external"]["url"].endswith("b.jpg")
+    assert children[2]["type"] == "paragraph"
+
+
+async def test_image_only_no_body(fresh_db, monkeypatch):
+    """Photo без caption: body пуст → children = только image-блоки."""
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "k")
+    monkeypatch.setattr("bot.services.notion_client.settings.NOTION_DATABASE_ID", "db")
+
+    fake = MagicMock()
+    fake.pages = MagicMock()
+    fake.pages.create = AsyncMock(return_value={"id": "p"})
+    notion_client.set_client(fake)
+
+    draft = _draft(note_type="note", formatted="")
+    draft.extras_json = json.dumps(
+        {"image_urls": ["https://api.telegram.org/file/bot/x/only.jpg"]}
+    )
+
+    await notion_client.create_page(draft)
+
+    children = fake.pages.create.await_args.kwargs["children"]
+    assert len(children) == 1
+    assert children[0]["type"] == "image"
+
+
 async def test_lazy_one_step_create_when_only_parent_page_set(fresh_db, monkeypatch):
     """Lazy auto-create: databases.create full-page DB → pages.create note."""
     monkeypatch.setattr("bot.services.notion_client.settings.NOTION_TOKEN", "k")

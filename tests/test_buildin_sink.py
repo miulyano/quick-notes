@@ -193,6 +193,65 @@ async def test_buildin_error_on_4xx(monkeypatch):
     assert exc_info.value.status == 401
 
 
+async def test_image_blocks_prepended_from_extras(monkeypatch):
+    """`extras_json.image_urls` → image-блоки идут перед body в children."""
+    monkeypatch.setattr("bot.services.sinks.buildin.settings.BUILDIN_TOKEN", "k")
+    monkeypatch.setenv("BUILDIN_DB_PERSONAL_NOTE", "db1")
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "p"})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(base_url="https://api.buildin.ai", transport=transport)
+    buildin_sink.set_client(client)
+
+    draft = _draft(formatted="text body")
+    draft.extras_json = json.dumps(
+        {"image_urls": ["https://api.telegram.org/file/bot/x/a.jpg",
+                        "https://api.telegram.org/file/bot/x/b.jpg"]}
+    )
+
+    await buildin_sink.create_page(draft)
+
+    children = captured["body"]["children"]
+    assert children[0]["type"] == "image"
+    assert children[0]["data"]["external"]["url"].endswith("a.jpg")
+    assert children[1]["type"] == "image"
+    assert children[1]["data"]["external"]["url"].endswith("b.jpg")
+    # Body идёт после image-блоков.
+    assert children[2]["type"] == "paragraph"
+
+
+async def test_image_only_no_body(monkeypatch):
+    """Photo без caption: body пуст → children = только image-блоки."""
+    monkeypatch.setattr("bot.services.sinks.buildin.settings.BUILDIN_TOKEN", "k")
+    monkeypatch.setenv("BUILDIN_DB_PERSONAL_NOTE", "db1")
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "p"})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(base_url="https://api.buildin.ai", transport=transport)
+    buildin_sink.set_client(client)
+
+    draft = _draft(formatted="")
+    draft.extras_json = json.dumps(
+        {"image_urls": ["https://api.telegram.org/file/bot/x/only.jpg"]}
+    )
+
+    await buildin_sink.create_page(draft)
+
+    children = captured["body"]["children"]
+    assert len(children) == 1
+    assert children[0]["type"] == "image"
+
+
 async def test_failure_injector_runs(monkeypatch):
     monkeypatch.setattr("bot.services.sinks.buildin.settings.BUILDIN_TOKEN", "k")
 

@@ -11,7 +11,8 @@ from aiogram.enums import ParseMode
 from bot.config import settings
 from bot.domain.note_types import TYPES
 from bot.domain.workspaces import WORKSPACES
-from bot.handlers import callbacks, commands, documents, inputs, voice
+from bot.handlers import callbacks, commands, documents, inputs, photo, voice
+from bot.middlewares.album import AlbumMiddleware
 from bot.middlewares.auth import AuthMiddleware
 from bot.services import llm_processor
 from bot.services.sinks import PageRef
@@ -156,11 +157,15 @@ async def main() -> None:
 
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
+    # Album aggregator: после auth, до фильтров. Аккумулирует фото с одним
+    # media_group_id и вызывает handler один раз с data["album"].
+    dp.message.middleware(AlbumMiddleware())
 
     dp.include_router(commands.router)
     dp.include_router(callbacks.router)
     dp.include_router(voice.router)
     dp.include_router(documents.router)
+    dp.include_router(photo.router)
     dp.include_router(inputs.router)
 
     on_saved, on_failed = _make_save_callbacks(bot)

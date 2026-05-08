@@ -25,13 +25,27 @@ from bot.domain.workspaces import DEFAULT_WORKSPACE
 from bot.services.sinks import FailureInjector, PageRef
 from bot.services.sinks._properties import build_properties as _build_properties
 from bot.storage.drafts import Draft
-from bot.utils.md_blocks import markdown_to_blocks_buildin
+from bot.utils.md_blocks import image_block_buildin, markdown_to_blocks_buildin
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.buildin.ai"
 MAX_BLOCKS_PER_REQUEST = 100  # `maxItems` в openapi для children в pages.create / append.
 DEFAULT_TIMEOUT = 30.0
+
+
+def _extras_image_urls(draft: Draft) -> list[str]:
+    """См. `bot.services.sinks.notion._extras_image_urls`."""
+    if not draft.extras_json:
+        return []
+    try:
+        extras = json.loads(draft.extras_json)
+    except (TypeError, ValueError):
+        return []
+    urls = extras.get("image_urls") if isinstance(extras, dict) else None
+    if not isinstance(urls, list):
+        return []
+    return [u for u in urls if isinstance(u, str) and u]
 
 
 def build_properties(note_type, draft):
@@ -134,7 +148,8 @@ class BuildinSink:
             )
 
         body = draft.formatted or ""
-        blocks = markdown_to_blocks_buildin(body)
+        image_urls = _extras_image_urls(draft)
+        blocks = [image_block_buildin(u) for u in image_urls] + markdown_to_blocks_buildin(body)
         first_chunk = blocks[:MAX_BLOCKS_PER_REQUEST]
         rest = blocks[MAX_BLOCKS_PER_REQUEST:]
 
