@@ -4,6 +4,13 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Added
+- Новый тип заметок «📚 Книга» (`key="book"`) с полями `Author` (rich_text)
+  и `Rating` (select от ⭐ до ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐, 10 уровней). DB id —
+  `NOTION_DB_BOOK` (Notion) или `BUILDIN_DB_<WS>_BOOK` (Buildin),
+  `template_id="default"` (passthrough тела от LLM). Дата формирования
+  заметки покрывается автоматическим `CreatedAt`.
+
 ### Fixed
 - Заголовок страницы в Notion для всех типов заметок теперь всегда берётся
   из `draft.title` (включая `(DD.MM.YYYY)` для `meeting`/`1on1`). Раньше

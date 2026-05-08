@@ -122,3 +122,8 @@ def test_1on1_full():
 
 def test_unknown_type_falls_to_default():
     assert render("nonexistent", "body") == "body"
+
+
+def test_book_passthrough():
+    body = "Отличная книга про когнитивные искажения. Запомнить главу 3."
+    assert render("book", body) == body
