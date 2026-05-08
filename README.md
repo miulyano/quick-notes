@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.18.2-blue)
+![version](https://img.shields.io/badge/version-0.19.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -19,7 +19,7 @@ DB-properties — это **реф-пример**, не «единственны�
 ## Что умеет (на 0.11.0)
 
 - Принимает **текст, голосовые, аудио, видео, видео-кружочки, документы,
-  форварды**.
+  фото (одиночные и альбомы), форварды**.
 - Голос/аудио/видео транскрибируется через **OpenAI Speech-to-Text**
   (`gpt-4o-mini-transcribe` по умолчанию, ~$0.003/мин и ~6% WER на русском;
   для шумных записей — `gpt-4o-transcribe`, ~$0.006/мин и ~5% WER, переключается
@@ -36,6 +36,15 @@ DB-properties — это **реф-пример**, не «единственны�
 - Для форвардов извлекаются метаданные (автор, канал, дата, подпись,
   оригинальный message_id) и подаются в LLM как контекст-prefix
   `[Forwarded] От: …; Когда: …`. Draft помечается `kind=forward`.
+- **Фото и альбомы**: форвард поста с одной или несколькими картинками
+  превращается в заметку, фото вставляется image-блоком перед body в
+  Notion / Buildin. Caption уходит в LLM как обычный текст (с тем же
+  forward-prefix, что и для текстовых форвардов). Альбом
+  агрегируется через `AlbumMiddleware` (debounce 1 c по
+  `media_group_id`) — один draft на весь альбом. URL фото — Telegram
+  file-URL, живёт ~1 час: успей открыть страницу в Notion/Buildin
+  чтобы провайдер закэшировал превью. Photo без caption → draft с
+  пустым body, title = `Photo from <author/chat>`, LLM не вызывается.
 - Создаёт черновик в SQLite **до** любой обработки (durability-контракт).
 - **Один GPT-4o-вызов**: классифицирует **тип заметки** и **workspace**
   (наборы заданы в реестрах `bot/domain/note_types.py` и
@@ -344,10 +353,12 @@ bot/
 │   ├── inputs.py          # text → draft → LLM → preview
 │   ├── voice.py           # voice/audio/video/video_note → download → transcribe → LLM → preview
 │   ├── documents.py       # document (txt/md/csv/pdf/docx) → download → extract → LLM → preview
+│   ├── photo.py           # photo (single + альбом) → get_file URL → caption→LLM → image-блок в Notion/Buildin
 │   ├── callbacks.py       # Save / Type / Cancel + клавиатура выбора типа
 │   └── commands.py        # /start /help /list /retry
 ├── middlewares/
-│   └── auth.py            # whitelist Telegram user IDs
+│   ├── auth.py            # whitelist Telegram user IDs
+│   └── album.py           # агрегатор фото-альбома (debounce 1s по media_group_id)
 ├── services/
 │   ├── llm_processor.py   # GPT-4o classify+format (один вызов) + map-reduce process_long + stub fallback
 │   ├── doc_extractor.py   # txt/md/csv/pdf/docx → plain text (pypdf, python-docx, stdlib)
@@ -380,7 +391,7 @@ bot/
 └── utils/
     ├── progress.py        # ProgressReporter
     ├── text_chunking.py
-    ├── md_blocks.py       # parse_markdown + markdown_to_blocks (Notion) + markdown_to_blocks_buildin
+    ├── md_blocks.py       # parse_markdown + markdown_to_blocks (Notion) + markdown_to_blocks_buildin + image_block_*
     ├── forward.py         # извлечение метаданных forward + prefix для LLM
     └── errors.py
 scripts/

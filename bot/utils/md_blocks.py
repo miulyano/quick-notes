@@ -144,3 +144,23 @@ def markdown_to_blocks_buildin(text: str) -> list[dict]:
         data = {"rich_text": _rich_text(pb.content), **pb.extra}
         out.append({"type": pb.type, "data": data})
     return out
+
+
+def image_block_notion(url: str) -> dict:
+    """Image-block с external URL для Notion pages.create children."""
+    return {
+        "object": "block",
+        "type": "image",
+        "image": {"type": "external", "external": {"url": url}},
+    }
+
+
+def image_block_buildin(url: str) -> dict:
+    """Image-block с external URL для Buildin pages.create children.
+
+    Shape mirror'ит Notion: контент типа `image` под `data` (как у paragraph).
+    """
+    return {
+        "type": "image",
+        "data": {"type": "external", "external": {"url": url}},
+    }

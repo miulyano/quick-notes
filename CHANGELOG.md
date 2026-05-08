@@ -21,6 +21,17 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
   показывает alert и не меняет draft.
 
 ### Added
+- Поддержка форварда поста с фото (одиночное и альбом). Caption уходит
+  в LLM как обычный текст (с forward-prefix), фото вставляется image-блоком
+  перед body в Notion / Buildin. Альбомы агрегируются `AlbumMiddleware`
+  (debounce 1 c по `media_group_id`) — один draft на весь альбом. URL фото —
+  Telegram file-URL (живёт ~1 час; за это время Notion/Buildin кэширует
+  превью при первом просмотре страницы). Photo без caption → draft с пустым
+  body, title из forward-meta, LLM не вызывается. Новые модули:
+  `bot/handlers/photo.py`, `bot/middlewares/album.py`,
+  helpers `image_block_notion` / `image_block_buildin` в `bot/utils/md_blocks.py`.
+
+### Added
 - Правка title и body draft через Telegram Web App (Mini App). Тап
   «✏️ Edit» в превью открывает форму с предзаполненным полным текстом
   (без обрезки), сохранение обновляет то же preview-сообщение —
