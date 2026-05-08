@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     NOTION_DB_1ON1: Optional[str] = None
     NOTION_DB_WORK: Optional[str] = None
     NOTION_DB_PERSONAL: Optional[str] = None
+    NOTION_DB_BOOK: Optional[str] = None
 
     # Notion lazy DB creation: NOTION_PARENT_PAGE_<WS> — id workspace-страницы.
     # Если задан, sink создаёт DB на лету при первом сохранении в (workspace × type)
@@ -95,7 +96,7 @@ class Settings(BaseSettings):
                 return True
         per_type_attrs = (
             "NOTION_DB_NOTE", "NOTION_DB_TASK", "NOTION_DB_IDEA", "NOTION_DB_MEETING",
-            "NOTION_DB_1ON1", "NOTION_DB_WORK", "NOTION_DB_PERSONAL",
+            "NOTION_DB_1ON1", "NOTION_DB_WORK", "NOTION_DB_PERSONAL", "NOTION_DB_BOOK",
         )
         return any(getattr(self, name, None) for name in per_type_attrs)
 

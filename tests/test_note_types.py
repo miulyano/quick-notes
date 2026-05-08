@@ -29,3 +29,24 @@ def test_every_type_has_title_property():
     """Notion DB requires a title field. Every type config must declare one."""
     for t in TYPES:
         assert any(p.kind == "title" for p in t.properties), f"{t.key} missing title property"
+
+
+def test_book_type_registered():
+    t = get("book")
+    assert t.key == "book"
+    assert t.label == "📚 Книга"
+    assert t.db_env == "NOTION_DB_BOOK"
+    assert t.template_id == "default"
+
+
+def test_book_properties():
+    t = get("book")
+    by_name = {p.name: p for p in t.properties}
+    assert {"Name", "Author", "Rating"} <= set(by_name)
+    assert by_name["Name"].kind == "title"
+    assert by_name["Author"].kind == "rich_text"
+    rating = by_name["Rating"]
+    assert rating.kind == "select"
+    assert len(rating.select_options) == 10
+    assert rating.select_options[0] == "⭐"
+    assert rating.select_options[-1] == "⭐" * 10

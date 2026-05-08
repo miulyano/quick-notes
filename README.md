@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.18.2-blue)
+![version](https://img.shields.io/badge/version-0.19.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -39,8 +39,8 @@ DB-properties — это **реф-пример**, не «единственны�
 - Создаёт черновик в SQLite **до** любой обработки (durability-контракт).
 - **Один GPT-4o-вызов**: классифицирует **тип заметки** и **workspace**
   (наборы заданы в реестрах `bot/domain/note_types.py` и
-  `bot/domain/workspaces.py` — в текущем реф-сетапе 7 типов: note / task /
-  idea / meeting / 1on1 / work / personal, и 5 workspace'ов: personal /
+  `bot/domain/workspaces.py` — в текущем реф-сетапе 8 типов: note / task /
+  idea / meeting / 1on1 / work / personal / book, и 5 workspace'ов: personal /
   work / family / growth / ai_path), извлекает properties (Status,
   Priority, DueDate, Tags, Attendees, …) и форматирует тело как markdown
   под template типа. Для `meeting` отдельно различает регулярные синки
@@ -247,6 +247,7 @@ Workspace, для которого `NOTION_PARENT_PAGE_<WS>` не задан, ф
 | `1on1` | `NOTION_DB_1ON1` | Name (title), With (rich_text), Date (date) |
 | `work` | `NOTION_DB_WORK` | Name (title), Tags (multi_select) |
 | `personal` | `NOTION_DB_PERSONAL` | Name (title), Tags (multi_select) |
+| `book` | `NOTION_DB_BOOK` | Name (title), Author (rich_text), Rating (select ⭐…⭐×10) |
 
 Per-(workspace × type): `NOTION_DB_<WS>_<TYPE>` (например
 `NOTION_DB_WORK_TASK`). Имеет высший приоритет среди env. Бот всегда
@@ -365,7 +366,7 @@ bot/
 │   ├── server.py          # aiohttp: GET /edit, POST /edit/submit, GET /healthz
 │   └── static/editor.html # одностраничник: title + body, нативная MainButton
 ├── domain/
-│   ├── note_types.py      # 7 типов с properties + db_env + LLM-hints + select_options
+│   ├── note_types.py      # 8 типов с properties + db_env + LLM-hints + select_options
 │   ├── workspaces.py      # реестр workspaces (personal/work/family/growth/ai_path)
 │   └── templates.py       # per-type markdown шаблоны
 ├── storage/
