@@ -4,6 +4,16 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Changed
+- Формат даты в title заметок типа `meeting` и `1on1`: `(YYYY-MM-DD)` →
+  `(DD.MM.YYYY)`. Поле `properties.Date` остаётся в ISO 8601 (требование
+  Notion API).
+- Кнопка `🔄 Sync ↔ Meeting` в превью теперь перегенерирует тело заметки
+  через LLM под выбранную структуру шаблона (Agenda/Discussion/Decisions
+  для meeting, иерархический passthrough для sync), а не только переключает
+  метаданные. Если у драфта нет исходного текста или OpenAI недоступен —
+  показывает alert и не меняет draft.
+
 ### Added
 - Правка title и body draft через Telegram Web App (Mini App). Тап
   «✏️ Edit» в превью открывает форму с предзаполненным полным текстом

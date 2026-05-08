@@ -142,7 +142,8 @@ def _build_system_prompt() -> str:
         "(default), используй agenda/decisions/action_items.\n"
         "- type=meeting и type=1on1: для `properties.Date` используй ISO-дату встречи "
         "из текста, иначе сегодняшнюю (см. «Дата» выше). В `title` ОБЯЗАТЕЛЬНО "
-        "добавь дату в скобках в конце: `«Тема (YYYY-MM-DD)»`. Общая длина title ≤ 80.\n\n"
+        "добавь дату в скобках в конце в формате DD.MM.YYYY: `«Тема (DD.MM.YYYY)»`. "
+        "Общая длина title ≤ 80.\n\n"
         "Верни СТРОГО JSON со схемой:\n"
         "{\n"
         '  "type": "<один из ключей типов>",\n'
@@ -170,16 +171,24 @@ def _build_system_prompt() -> str:
     )
 
 
-async def _process_real(raw_text: str) -> ProcessedNote:
+async def _process_real(
+    raw_text: str, *, force_meeting_kind: Optional[str] = None
+) -> ProcessedNote:
     client = _get_client()
     system_prompt = _build_system_prompt()
+    user_content = raw_text
+    if force_meeting_kind in {"meeting", "sync"}:
+        user_content = (
+            f"[Hint: type=meeting, extras.kind=\"{force_meeting_kind}\" — "
+            f"используй соответствующий шаблон.]\n\n{raw_text}"
+        )
     response = await client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         response_format={"type": "json_object"},
         temperature=0.2,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": raw_text},
+            {"role": "user", "content": user_content},
         ],
     )
     content = response.choices[0].message.content or "{}"
@@ -204,8 +213,12 @@ async def _process_real(raw_text: str) -> ProcessedNote:
     extras = payload.get("extras") or {}
     body = (payload.get("markdown_body") or "").strip() or raw_text
 
-    # Render template here so handlers stay dumb. Keeps LLM-output and
-    # template logic close together.
+    if force_meeting_kind in {"meeting", "sync"}:
+        note_type = "meeting"
+        if not isinstance(extras, dict):
+            extras = {}
+        extras["kind"] = force_meeting_kind
+
     from bot.domain.templates import render
 
     formatted = render(note_type, body, extras)
@@ -232,17 +245,23 @@ async def _process_stub(raw_text: str) -> ProcessedNote:
     )
 
 
-async def process(raw_text: str) -> ProcessedNote:
+async def process(
+    raw_text: str, *, force_meeting_kind: Optional[str] = None
+) -> ProcessedNote:
     """Real path при openai_enabled — иначе stub (single 'note' type).
 
     Real-path ошибки (network/timeout/rate-limit/невалидный JSON) пробрасываются
     как LLMError. Молчаливого fallback на stub НЕТ: handler ставит draft.failed
     и пользователь может /retry.
+
+    `force_meeting_kind` (`"meeting"` | `"sync"`) фиксирует подвид митинга:
+    подсказка идёт в user-сообщение, и итоговый extras.kind форсится поверх
+    LLM-ответа. Для не-meeting и stub-пути параметр игнорируется.
     """
     if not settings.openai_enabled:
         return await _process_stub(raw_text)
     try:
-        return await _process_real(raw_text)
+        return await _process_real(raw_text, force_meeting_kind=force_meeting_kind)
     except LLMError:
         raise
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:

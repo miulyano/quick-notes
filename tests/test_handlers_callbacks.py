@@ -11,12 +11,14 @@ from bot.handlers.callbacks import (
     on_set_workspace,
     on_toggle_kind,
 )
+from bot.services import llm_processor
+from bot.services.llm_processor import LLMError, ProcessedNote
 from bot.storage import drafts, outbox
 
 
-async def _mk_draft(note_type="note") -> str:
+async def _mk_draft(note_type="note", *, raw_payload: str = "x") -> str:
     draft_id = await drafts.create(
-        user_id=111, chat_id=1, message_id=1, kind="text", raw_payload="x"
+        user_id=111, chat_id=1, message_id=1, kind="text", raw_payload=raw_payload
     )
     await drafts.update(
         draft_id,
@@ -26,6 +28,17 @@ async def _mk_draft(note_type="note") -> str:
         formatted="body",
     )
     return draft_id
+
+
+def _processed(*, kind: str, title: str = "Sync (08.05.2026)") -> ProcessedNote:
+    return ProcessedNote(
+        note_type="meeting",
+        title=title,
+        formatted="re-rendered body",
+        workspace="work",
+        properties={"Date": "2026-05-08"},
+        extras={"kind": kind},
+    )
 
 
 def _cb(data: str):
@@ -124,45 +137,97 @@ async def test_set_workspace_updates_draft(fresh_db):
     cb.message.edit_text.assert_awaited()
 
 
-async def test_toggle_kind_flips_meeting_to_sync(fresh_db):
-    draft_id = await _mk_draft(note_type="meeting")
+async def test_toggle_kind_flips_meeting_to_sync(fresh_db, monkeypatch):
+    draft_id = await _mk_draft(note_type="meeting", raw_payload="команда обсудила статусы")
     await drafts.update(draft_id, extras_json=json.dumps({"kind": "meeting"}))
-    cb = _cb(f"togglekind:{draft_id}")
 
+    process_mock = AsyncMock(return_value=_processed(kind="sync"))
+    monkeypatch.setattr(llm_processor, "process", process_mock)
+
+    cb = _cb(f"togglekind:{draft_id}")
     await on_toggle_kind(cb)
+
+    process_mock.assert_awaited_once()
+    assert process_mock.await_args.kwargs["force_meeting_kind"] == "sync"
 
     d = await drafts.get(draft_id)
     assert json.loads(d.extras_json)["kind"] == "sync"
+    assert d.formatted == "re-rendered body"
+    assert d.title == "Sync (08.05.2026)"
     cb.message.edit_text.assert_awaited()
 
 
-async def test_toggle_kind_flips_sync_to_meeting(fresh_db):
-    draft_id = await _mk_draft(note_type="meeting")
+async def test_toggle_kind_flips_sync_to_meeting(fresh_db, monkeypatch):
+    draft_id = await _mk_draft(note_type="meeting", raw_payload="kick-off релиза")
     await drafts.update(draft_id, extras_json=json.dumps({"kind": "sync"}))
-    cb = _cb(f"togglekind:{draft_id}")
 
+    process_mock = AsyncMock(return_value=_processed(kind="meeting"))
+    monkeypatch.setattr(llm_processor, "process", process_mock)
+
+    cb = _cb(f"togglekind:{draft_id}")
     await on_toggle_kind(cb)
 
+    assert process_mock.await_args.kwargs["force_meeting_kind"] == "meeting"
     d = await drafts.get(draft_id)
     assert json.loads(d.extras_json)["kind"] == "meeting"
 
 
-async def test_toggle_kind_default_meeting_when_no_extras(fresh_db):
-    draft_id = await _mk_draft(note_type="meeting")
-    cb = _cb(f"togglekind:{draft_id}")
+async def test_toggle_kind_default_meeting_when_no_extras(fresh_db, monkeypatch):
+    draft_id = await _mk_draft(note_type="meeting", raw_payload="meeting text")
 
+    process_mock = AsyncMock(return_value=_processed(kind="sync"))
+    monkeypatch.setattr(llm_processor, "process", process_mock)
+
+    cb = _cb(f"togglekind:{draft_id}")
     await on_toggle_kind(cb)
 
+    assert process_mock.await_args.kwargs["force_meeting_kind"] == "sync"
     d = await drafts.get(draft_id)
     assert json.loads(d.extras_json)["kind"] == "sync"
 
 
-async def test_toggle_kind_rejects_non_meeting(fresh_db):
+async def test_toggle_kind_rejects_non_meeting(fresh_db, monkeypatch):
     draft_id = await _mk_draft(note_type="note")
-    cb = _cb(f"togglekind:{draft_id}")
+    process_mock = AsyncMock()
+    monkeypatch.setattr(llm_processor, "process", process_mock)
 
+    cb = _cb(f"togglekind:{draft_id}")
     await on_toggle_kind(cb)
 
     cb.answer.assert_awaited_with("Доступно только для митингов", show_alert=True)
+    process_mock.assert_not_awaited()
     d = await drafts.get(draft_id)
     assert d.extras_json is None
+
+
+async def test_toggle_kind_handles_llm_error(fresh_db, monkeypatch):
+    draft_id = await _mk_draft(note_type="meeting", raw_payload="meeting text")
+    await drafts.update(draft_id, extras_json=json.dumps({"kind": "meeting"}))
+
+    monkeypatch.setattr(
+        llm_processor, "process", AsyncMock(side_effect=LLMError("boom"))
+    )
+
+    cb = _cb(f"togglekind:{draft_id}")
+    await on_toggle_kind(cb)
+
+    cb.answer.assert_any_await("LLM не отвечает, попробуй позже", show_alert=True)
+    d = await drafts.get(draft_id)
+    # extras_json не изменился
+    assert json.loads(d.extras_json)["kind"] == "meeting"
+    assert d.formatted == "body"
+
+
+async def test_toggle_kind_no_source_text(fresh_db, monkeypatch):
+    """Драфт без transcribed и без raw_payload (искусственный кейс) — alert, не падает."""
+    draft_id = await _mk_draft(note_type="meeting", raw_payload="")
+    process_mock = AsyncMock()
+    monkeypatch.setattr(llm_processor, "process", process_mock)
+
+    cb = _cb(f"togglekind:{draft_id}")
+    await on_toggle_kind(cb)
+
+    cb.answer.assert_awaited_with(
+        "Не могу перегенерировать: нет исходного текста", show_alert=True
+    )
+    process_mock.assert_not_awaited()
