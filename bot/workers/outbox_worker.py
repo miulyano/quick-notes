@@ -19,6 +19,7 @@ import asyncio
 import logging
 from typing import Awaitable, Callable, Optional
 
+from bot.services.sinks import PageRef
 from bot.services.sinks.factory import get_sink
 from bot.storage import drafts, idempotency, outbox, save_tx
 from bot.storage.drafts import Draft
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 POLL_INTERVAL_SECS = 2.0
 MAX_ATTEMPTS = 8
 
-OnSaved = Callable[[Draft, str], Awaitable[None]]
+OnSaved = Callable[[Draft, PageRef], Awaitable[None]]
 OnFailed = Callable[[Draft, str], Awaitable[None]]
 
 
@@ -42,10 +43,11 @@ async def process_one(
     draft = await drafts.get(draft_id)
     if cached is not None:
         # Recovered after crash between Notion-success and local commit.
-        # No second API call — just finish the local cleanup.
+        # No second API call — just finish the local cleanup. URL не сохраняем
+        # в БД — финальное сообщение в этом редком кейсе будет без ссылки.
         await save_tx.commit_save(draft_id, cached)
         if draft is not None and on_saved is not None:
-            await on_saved(draft, cached)
+            await on_saved(draft, PageRef(id=cached, url=None))
         return
 
     if draft is None:
@@ -54,7 +56,7 @@ async def process_one(
         return
 
     try:
-        page_id = await get_sink().create_page(draft)
+        page_ref = await get_sink().create_page(draft)
     except Exception as exc:
         attempts = await outbox.mark_failed(draft_id, str(exc))
         logger.warning("outbox save failed draft=%s attempt=%d err=%s", draft_id, attempts, exc)
@@ -65,9 +67,9 @@ async def process_one(
                 await on_failed(draft, str(exc))
         return
 
-    await save_tx.commit_save(draft_id, page_id)
+    await save_tx.commit_save(draft_id, page_ref.id)
     if on_saved is not None:
-        await on_saved(draft, page_id)
+        await on_saved(draft, page_ref)
 
 
 async def run(

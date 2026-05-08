@@ -28,8 +28,8 @@ async def test_process_one_happy_path(fresh_db):
 
     saved = []
 
-    async def on_saved(d, page_id):
-        saved.append((d.id, page_id))
+    async def on_saved(d, page_ref):
+        saved.append((d.id, page_ref))
 
     await outbox_worker.process_one(draft_id, on_saved=on_saved)
 
@@ -37,7 +37,8 @@ async def test_process_one_happy_path(fresh_db):
     assert await outbox.get_attempts(draft_id) is None
     page_id = await idempotency.get_page_id(draft_id)
     assert page_id is not None
-    assert saved == [(draft_id, page_id)]
+    assert saved and saved[0][0] == draft_id
+    assert saved[0][1].id == page_id
 
 
 async def test_process_one_retries_then_succeeds(fresh_db):
@@ -84,8 +85,8 @@ async def test_process_one_uses_cached_page_id_after_crash(fresh_db):
 
     saved = []
 
-    async def on_saved(d, page_id):
-        saved.append(page_id)
+    async def on_saved(d, page_ref):
+        saved.append(page_ref)
 
     await outbox_worker.process_one(draft_id, on_saved=on_saved)
 
@@ -93,7 +94,9 @@ async def test_process_one_uses_cached_page_id_after_crash(fresh_db):
     assert calls == []
     assert await drafts.get(draft_id) is None
     assert await outbox.get_attempts(draft_id) is None
-    assert saved == ["previously-saved-page"]
+    assert len(saved) == 1
+    assert saved[0].id == "previously-saved-page"
+    assert saved[0].url is None  # URL не сохраняется в idempotency
 
 
 async def test_max_attempts_marks_failed(fresh_db, monkeypatch):

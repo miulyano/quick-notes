@@ -22,7 +22,7 @@ import httpx
 from bot.config import settings
 from bot.domain.note_types import get as get_note_type
 from bot.domain.workspaces import DEFAULT_WORKSPACE
-from bot.services.sinks import FailureInjector
+from bot.services.sinks import FailureInjector, PageRef
 from bot.services.sinks._properties import build_properties as _build_properties
 from bot.storage.drafts import Draft
 from bot.utils.md_blocks import markdown_to_blocks_buildin
@@ -97,7 +97,7 @@ class BuildinSink:
         """Health-check: validate token + получить инфу о боте."""
         return await self._request("GET", "/v1/users/me")
 
-    async def _create_page_stub(self, draft: Draft) -> str:
+    async def _create_page_stub(self, draft: Draft) -> PageRef:
         page_id = f"stub-page-{uuid.uuid4().hex[:8]}"
         logger.info(
             "STUB buildin.create_page draft_id=%s type=%s ws=%s title=%r body_len=%d page_id=%s",
@@ -108,7 +108,7 @@ class BuildinSink:
             len(draft.formatted or ""),
             page_id,
         )
-        return page_id
+        return PageRef(id=page_id, url=None)
 
     async def _append_children(self, page_id: str, blocks: list[dict]) -> None:
         """Дозалить блоки сверх первой сотни — чанками по 100 через PATCH."""
@@ -120,7 +120,7 @@ class BuildinSink:
                 json_body={"children": chunk},
             )
 
-    async def _create_page_real(self, draft: Draft) -> str:
+    async def _create_page_real(self, draft: Draft) -> PageRef:
         note_type = get_note_type(draft.note_type or "")
         workspace_key = draft.workspace or DEFAULT_WORKSPACE
         database_id = settings.database_id_for(
@@ -151,9 +151,9 @@ class BuildinSink:
         if rest:
             await self._append_children(page_id, rest)
 
-        return page_id
+        return PageRef(id=page_id, url=response.get("url"))
 
-    async def create_page(self, draft: Draft) -> str:
+    async def create_page(self, draft: Draft) -> PageRef:
         if self._failure_injector is not None:
             await self._failure_injector(draft)
         if settings.buildin_enabled:
@@ -172,7 +172,7 @@ def set_client(client: Optional[httpx.AsyncClient]) -> None:
     _sink.set_client(client)
 
 
-async def create_page(draft: Draft) -> str:
+async def create_page(draft: Draft) -> PageRef:
     return await _sink.create_page(draft)
 
 

@@ -7,6 +7,7 @@ Sink — провайдер хранилища заметок (Notion, Buildin, 
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, Protocol
 
 from bot.storage.drafts import Draft
@@ -14,11 +15,19 @@ from bot.storage.drafts import Draft
 FailureInjector = Callable[[Draft], Awaitable[None]]
 
 
+@dataclass(frozen=True)
+class PageRef:
+    """Ссылка на созданную страницу: id (для idempotency) + url (для UI)."""
+
+    id: str
+    url: Optional[str] = None
+
+
 class Sink(Protocol):
     """Интерфейс провайдера хранилища заметок."""
 
-    async def create_page(self, draft: Draft) -> str:
-        """Создать страницу в провайдере. Возвращает page_id."""
+    async def create_page(self, draft: Draft) -> PageRef:
+        """Создать страницу в провайдере. Возвращает PageRef(id, url)."""
         ...
 
     def set_failure_injector(self, fn: Optional[FailureInjector]) -> None:

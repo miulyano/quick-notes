@@ -13,6 +13,7 @@ from bot.domain.workspaces import get as get_workspace
 from bot.services import llm_processor
 from bot.storage import drafts
 from bot.utils import forward as forward_utils
+from bot.utils.progress import ProgressReporter
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -101,13 +102,15 @@ async def handle_text(message: Message) -> None:
 
     llm_input = forward_utils.enrich(text, forward_meta) if forward_meta else text
 
-    try:
-        processed = await llm_processor.process(llm_input)
-    except Exception as exc:
-        logger.exception("llm_processor.process failed for draft=%s", draft_id)
-        await drafts.update(draft_id, status="failed", error=str(exc))
-        await message.answer("⚠️ Не получилось обработать. Доступно через /list.")
-        return
+    async with ProgressReporter(message, "Готовлю заметку…") as progress:
+        try:
+            processed = await llm_processor.process(llm_input)
+        except Exception as exc:
+            logger.exception("llm_processor.process failed for draft=%s", draft_id)
+            await drafts.update(draft_id, status="failed", error=str(exc))
+            await progress.fail("Не получилось обработать. Доступно через /list.")
+            return
+        await progress.finish()
 
     extras_json = json.dumps(processed.extras, ensure_ascii=False)
     await drafts.update(

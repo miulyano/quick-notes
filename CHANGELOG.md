@@ -4,6 +4,23 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Added
+- Прогресс-индикатор в текстовом флоу (включая forward): пока крутится
+  LLM, превью-сообщение показывает анимированный бар «Готовлю заметку…»
+  вместо тишины. Раньше прогресс был только для voice/document.
+- Кликабельная ссылка на созданную страницу вместо UUID.
+  `Sink.create_page` теперь возвращает `PageRef(id, url)`. Notion и
+  Buildin прокидывают поле `url` из ответа API; финальное сообщение
+  `✅ <a href="…">Открыть в Notion</a>` (HTML link). Если `url` нет
+  (stub-режим, recovery после краша через idempotency-кэш) — fallback
+  на старый формат с `<code>page_id</code>`.
+
+### Changed
+- После нажатия 💾 Save превью-сообщение сразу заменяется на
+  `⏳ Сохраняю в Notion…` (вместо снятия только клавиатуры).
+  При `outbox`-retry-backoff пользователь видит честный «pending»-статус
+  всё время до финального успеха или ошибки.
+
 ### Fixed
 - Notion и Buildin auto-create больше не создают промежуточную wrapper-страницу:
   на `(workspace × type)` создаётся одна full-page DB прямо в
