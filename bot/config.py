@@ -46,16 +46,14 @@ class Settings(BaseSettings):
     BUILDIN_TOKEN: Optional[str] = None
     BUILDIN_DB_DEFAULT: Optional[str] = None
 
-    # OpenAI for classify+format. Empty → llm_processor stub (single 'note' type,
-    # body == raw input). Полезно для dev без расходов на API.
+    # OpenAI for classify+format + транскрибация голоса/видео.
+    # Empty → llm_processor stub + voice handlers отвечают "транскрибация выключена".
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o"
-
-    # AssemblyAI Universal-2 для транскрибации голоса/видео.
-    # Empty → voice/audio/video handlers отвечают "транскрибация выключена".
-    ASSEMBLYAI_API_KEY: Optional[str] = None
-    ASSEMBLYAI_SPEECH_MODEL: str = "universal"  # universal | nano | slam-1
-    # Force a language ("ru", "en"). None → autodetect (ненадёжно для <30 сек).
+    # STT-модель: gpt-4o-mini-transcribe (default, ~$0.003/мин, ~6% WER на русском)
+    # или gpt-4o-transcribe (~$0.006/мин, ~5% WER — для шумных записей).
+    OPENAI_TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
+    # Force a language ("ru", "en"). None → autodetect.
     FORCE_LANGUAGE_CODE: Optional[str] = None
     TEMP_DIR: str = "/tmp/notes-bot"
 
@@ -97,10 +95,6 @@ class Settings(BaseSettings):
     @property
     def openai_enabled(self) -> bool:
         return bool(self.OPENAI_API_KEY)
-
-    @property
-    def assemblyai_enabled(self) -> bool:
-        return bool(self.ASSEMBLYAI_API_KEY)
 
     def database_id_for(
         self,

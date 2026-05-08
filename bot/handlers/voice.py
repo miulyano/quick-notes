@@ -4,7 +4,7 @@ Pipeline mirrors the text path but adds two phases up front:
 1. Persist draft (status=raw) with `file_id` payload — durability before any
    network I/O.
 2. Download Telegram file → temp path. Status `raw` stays.
-3. Transcribe via AssemblyAI → status `transcribed`, text saved.
+3. Transcribe via OpenAI Speech-to-Text → status `transcribed`, text saved.
 4. LLM classify+format → status `awaiting_confirm`.
 5. Show preview with the same Save/Type/Cancel keyboard as the text path.
 
@@ -60,9 +60,9 @@ async def handle_media(message: Message, bot: Bot) -> None:
     else:
         return
 
-    if not settings.assemblyai_enabled:
+    if not settings.openai_enabled:
         await message.answer(
-            "⚠️ Транскрибация выключена. Добавь `ASSEMBLYAI_API_KEY` в `.env`."
+            "⚠️ Транскрибация выключена. Добавь `OPENAI_API_KEY` в `.env`."
         )
         return
 

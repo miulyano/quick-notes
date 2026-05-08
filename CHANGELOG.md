@@ -4,7 +4,23 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Changed
+- STT-провайдер: AssemblyAI Universal-2 → OpenAI Speech-to-Text
+  (`gpt-4o-mini-transcribe` по умолчанию, ~$0.003/мин и ~6% WER на русском;
+  `gpt-4o-transcribe` для шумных записей, ~$0.006/мин и ~5% WER). Один HTTP-запрос
+  вместо submit + poll-цикла → меньше latency и кода. Диаризация удалена
+  (не использовалась — все входы с одним спикером); `TranscriptionResult`
+  упрощён до `(text, language)`.
+
+### Removed
+- Зависимость `assemblyai>=0.35`.
+- env-переменные `ASSEMBLYAI_API_KEY`, `ASSEMBLYAI_SPEECH_MODEL`.
+- `transcriber._render_with_speakers`, `_run_assemblyai`, `_poll_for_completion`,
+  `_utterances_from_response`, dataclass `Utterance`, поля `utterances` и
+  `speaker_count` в `TranscriptionResult`.
+
 ### Added
+- env-переменная `OPENAI_TRANSCRIBE_MODEL` (default `gpt-4o-mini-transcribe`).
 - Прогресс-индикатор в текстовом флоу (включая forward): пока крутится
   LLM, превью-сообщение показывает анимированный бар «Готовлю заметку…»
   вместо тишины. Раньше прогресс был только для voice/document.

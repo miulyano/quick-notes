@@ -1,99 +1,88 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from bot.services import transcriber
-from bot.services.transcriber import Utterance
 
 
-def test_render_single_speaker():
-    utts = [
-        Utterance("A", "first sentence", 0, 1000),
-        Utterance("A", "second sentence", 1000, 2000),
-    ]
-    text = transcriber._render_with_speakers(utts)
-    assert text == "first sentence\n\nsecond sentence"
-
-
-def test_render_multi_speaker_labels():
-    utts = [
-        Utterance("A", "Привет", 0, 100),
-        Utterance("B", "Здарова", 100, 200),
-        Utterance("A", "Как ты?", 200, 300),
-    ]
-    text = transcriber._render_with_speakers(utts)
-    assert "A: Привет" in text
-    assert "B: Здарова" in text
-    assert "A: Как ты?" in text
-
-
-def test_render_empty():
-    assert transcriber._render_with_speakers([]) == ""
-
-
-def test_render_skips_empty_text():
-    utts = [
-        Utterance("A", "ok", 0, 100),
-        Utterance("A", "   ", 100, 200),
-        Utterance("A", "next", 200, 300),
-    ]
-    text = transcriber._render_with_speakers(utts)
-    assert text == "ok\n\nnext"
+@pytest.fixture(autouse=True)
+def _reset_client():
+    transcriber.set_client(None)
+    yield
+    transcriber.set_client(None)
 
 
 async def test_transcribe_disabled_raises(monkeypatch):
-    monkeypatch.setattr("bot.services.transcriber.settings.ASSEMBLYAI_API_KEY", None)
+    monkeypatch.setattr("bot.services.transcriber.settings.OPENAI_API_KEY", None)
     with pytest.raises(RuntimeError, match="not configured"):
         await transcriber.transcribe("/tmp/x.ogg")
 
 
-class _FakeRaw:
-    def __init__(self, status, text=""):
-        self.status = status
-        self.text = text
-
-
-async def test_poll_returns_on_completed():
-    raws = [_FakeRaw("queued"), _FakeRaw("processing"), _FakeRaw("completed", "ok")]
-
-    async def fetch():
-        return raws.pop(0)
-
-    async def sleep_fn(_):
-        return
-
-    result = await transcriber._poll_for_completion(
-        fetch=fetch,
-        on_fraction=None,
-        completed_statuses=("completed", "error"),
-        queued_status="queued",
-        processing_status="processing",
-        now_fn=lambda: 0.0,
-        sleep_fn=sleep_fn,
+async def test_transcribe_happy_path(monkeypatch, tmp_path):
+    monkeypatch.setattr("bot.services.transcriber.settings.OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "bot.services.transcriber.settings.OPENAI_TRANSCRIBE_MODEL",
+        "gpt-4o-mini-transcribe",
     )
-    assert result.status == "completed"
+    monkeypatch.setattr("bot.services.transcriber.settings.FORCE_LANGUAGE_CODE", None)
+
+    audio = tmp_path / "voice.ogg"
+    audio.write_bytes(b"fake-bytes")
+
+    fake_response = MagicMock(text="Привет мир", language="ru")
+    fake_client = MagicMock()
+    fake_client.audio.transcriptions.create = AsyncMock(return_value=fake_response)
+    transcriber.set_client(fake_client)
+
+    fractions: list[float] = []
+
+    async def on_fraction(f: float):
+        fractions.append(f)
+
+    result = await transcriber.transcribe(str(audio), on_fraction=on_fraction)
+
+    assert result.text == "Привет мир"
+    assert result.language == "ru"
+    assert fractions[0] == 0.1 and fractions[-1] == 1.0
+    fake_client.audio.transcriptions.create.assert_awaited_once()
+    kwargs = fake_client.audio.transcriptions.create.call_args.kwargs
+    assert kwargs["model"] == "gpt-4o-mini-transcribe"
+    assert kwargs["language"] is None
+    assert kwargs["response_format"] == "json"
 
 
-async def test_poll_raises_on_timeout():
-    """Бесконечный processing → RuntimeError по истечении max_poll_seconds."""
-    async def fetch():
-        return _FakeRaw("processing")
+async def test_transcribe_passes_force_language(monkeypatch, tmp_path):
+    monkeypatch.setattr("bot.services.transcriber.settings.OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr("bot.services.transcriber.settings.FORCE_LANGUAGE_CODE", "ru")
 
-    async def sleep_fn(_):
-        return
+    audio = tmp_path / "voice.ogg"
+    audio.write_bytes(b"x")
 
-    clock = {"t": 0.0}
+    # Модели gpt-4o-*-transcribe не возвращают language в response — проверяем,
+    # что результат подхватывает FORCE_LANGUAGE_CODE как fallback.
+    fake_response = MagicMock(spec=["text"])
+    fake_response.text = "ok"
+    fake_client = MagicMock()
+    fake_client.audio.transcriptions.create = AsyncMock(return_value=fake_response)
+    transcriber.set_client(fake_client)
 
-    def now_fn():
-        clock["t"] += 100.0
-        return clock["t"]
+    result = await transcriber.transcribe(str(audio))
 
-    with pytest.raises(RuntimeError, match="timeout"):
-        await transcriber._poll_for_completion(
-            fetch=fetch,
-            on_fraction=None,
-            completed_statuses=("completed", "error"),
-            queued_status="queued",
-            processing_status="processing",
-            now_fn=now_fn,
-            sleep_fn=sleep_fn,
-            max_poll_seconds=300.0,
-        )
+    assert result.text == "ok"
+    assert result.language == "ru"
+    kwargs = fake_client.audio.transcriptions.create.call_args.kwargs
+    assert kwargs["language"] == "ru"
+
+
+async def test_transcribe_strips_whitespace(monkeypatch, tmp_path):
+    monkeypatch.setattr("bot.services.transcriber.settings.OPENAI_API_KEY", "sk-test")
+    audio = tmp_path / "v.ogg"
+    audio.write_bytes(b"x")
+
+    fake_response = MagicMock(text="  hello  \n", language=None)
+    fake_client = MagicMock()
+    fake_client.audio.transcriptions.create = AsyncMock(return_value=fake_response)
+    transcriber.set_client(fake_client)
+
+    result = await transcriber.transcribe(str(audio))
+    assert result.text == "hello"

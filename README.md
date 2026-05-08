@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.16.0-blue)
+![version](https://img.shields.io/badge/version-0.17.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -20,11 +20,12 @@ DB-properties — это **реф-пример**, не «единственны�
 
 - Принимает **текст, голосовые, аудио, видео, видео-кружочки, документы,
   форварды**.
-- Голос/аудио/видео транскрибируется через **AssemblyAI Universal-2** с
-  диаризацией спикеров. Сырой транскрипт остаётся в БД (промежуточный шаг),
-  в провайдер уходит только готовая заметка после LLM. Без
-  `ASSEMBLYAI_API_KEY` — голосовые отключены, бот отвечает «транскрибация
-  выключена».
+- Голос/аудио/видео транскрибируется через **OpenAI Speech-to-Text**
+  (`gpt-4o-mini-transcribe` по умолчанию, ~$0.003/мин и ~6% WER на русском;
+  для шумных записей — `gpt-4o-transcribe`, ~$0.006/мин и ~5% WER, переключается
+  через `OPENAI_TRANSCRIBE_MODEL`). Сырой транскрипт остаётся в БД (промежуточный
+  шаг), в провайдер уходит только готовая заметка после LLM. Без `OPENAI_API_KEY` —
+  голосовые отключены, бот отвечает «транскрибация выключена».
 - **Документы** (`txt`, `md`, `csv`, `pdf`, `docx`) — прямой upload или форвард.
   Текст извлекается локально (`pypdf` для PDF, `python-docx` для DOCX, stdlib
   для остальных) и идёт в тот же LLM-pipeline. Лимит — 20 МБ (Telegram bot API).
@@ -320,8 +321,8 @@ python -m scripts.setup_buildin_dbs >> .env
 - aiosqlite — async-драйвер SQLite
 - httpx — async HTTP-клиент для Buildin API (тонкий клиент по openapi)
 - notion-client — Python SDK Notion API (legacy fallback провайдер)
-- openai — GPT-4o classify+format одним вызовом
-- assemblyai — Universal-2 транскрибация + диаризация
+- openai — GPT-4o classify+format + Speech-to-Text транскрибация
+  (`gpt-4o-mini-transcribe` / `gpt-4o-transcribe`)
 - pypdf, python-docx — извлечение текста из PDF/DOCX
 - pytest + pytest-asyncio — тесты (`reportlab` — dev-only, для генерации
   тестовых PDF в `test_doc_extractor.py`)
@@ -345,7 +346,7 @@ bot/
 │   ├── llm_processor.py   # GPT-4o classify+format (один вызов) + map-reduce process_long + stub fallback
 │   ├── doc_extractor.py   # txt/md/csv/pdf/docx → plain text (pypdf, python-docx, stdlib)
 │   ├── notion_client.py   # compat-shim → sinks/notion.py
-│   ├── transcriber.py     # AssemblyAI Universal-2 + диаризация (multi-speaker labels)
+│   ├── transcriber.py     # OpenAI Speech-to-Text (gpt-4o-mini-transcribe default)
 │   └── sinks/             # провайдеры хранилища заметок
 │       ├── __init__.py    # Sink Protocol
 │       ├── _properties.py # общий property builder (shape="notion"|"buildin")
@@ -438,8 +439,8 @@ cd /opt/notes-bot
 git clone <repo-url> .
 mkdir -p data
 
-# .env заполнить локально (см. разделы «Подключение Buildin / Notion»,
-# «OpenAI», «AssemblyAI» выше) и залить:
+# .env заполнить локально (см. разделы «Подключение Buildin / Notion»
+# и «OpenAI» выше) и залить:
 #   scp .env user@vps:/opt/notes-bot/.env
 chmod 600 .env
 
@@ -542,7 +543,8 @@ pytest -v
 - `test_sinks_properties.py` — общий property builder для обоих shape'ов
   (`shape="notion"|"buildin"`): title/select/multi_select/date/checkbox,
   пустые значения, неизвестные kind.
-- `test_transcriber.py` — диаризация render-with-speakers, disabled-flag.
+- `test_transcriber.py` — happy-path с моком OpenAI Speech-to-Text, передача
+  `FORCE_LANGUAGE_CODE`, disabled-flag.
 - `test_handlers_voice.py` — happy path с моками download/transcribe/LLM,
   durability при ошибках.
 - `test_forward.py` — извлечение метаданных всех типов forward_origin
@@ -573,9 +575,8 @@ pytest -v
 | `NOTION_DB_<TYPE>` | Per-type DB id: `NOTE`, `TASK`, `IDEA`, `MEETING`, `1ON1`, `WORK`, `PERSONAL`. Все optional |
 | `NOTION_DB_<WS>_<TYPE>` | Per-(workspace × type) DB id, например `NOTION_DB_WORK_TASK`. Высший приоритет среди env. Optional |
 | `NOTION_PARENT_PAGE_<WS>` | Parent-page id для lazy one-step auto-create (full-page DB прямо в parent-page) конкретного workspace. Если задан — бот создаст DB при первом сохранении в `(<ws> × type)` и закэширует database_id. Optional |
-| `OPENAI_API_KEY` | Ключ OpenAI для GPT-4o classify+format. Пусто → stub |
-| `OPENAI_MODEL` | Имя модели (по умолчанию `gpt-4o`) |
-| `ASSEMBLYAI_API_KEY` | Ключ AssemblyAI для транскрибации. Пусто → voice/audio/video отключены |
-| `ASSEMBLYAI_SPEECH_MODEL` | `universal` (default), `nano` или `slam-1` |
-| `FORCE_LANGUAGE_CODE` | `ru`, `en`, …  Пусто → autodetect (ненадёжно для <30 сек) |
+| `OPENAI_API_KEY` | Ключ OpenAI для GPT-4o classify+format **и** Speech-to-Text транскрибации. Пусто → stub LLM + voice/audio/video отключены |
+| `OPENAI_MODEL` | Имя LLM-модели для classify+format (по умолчанию `gpt-4o`) |
+| `OPENAI_TRANSCRIBE_MODEL` | STT-модель: `gpt-4o-mini-transcribe` (default, ~$0.003/мин, ~6% WER на русском) или `gpt-4o-transcribe` (~$0.006/мин, ~5% WER, для шумных записей) |
+| `FORCE_LANGUAGE_CODE` | `ru`, `en`, …  Пусто → autodetect |
 | `TEMP_DIR` | Временные файлы для скачанных медиа (по умолчанию `/tmp/notes-bot`) |
