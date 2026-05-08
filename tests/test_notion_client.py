@@ -172,7 +172,9 @@ async def test_properties_built_from_draft_json(fresh_db, monkeypatch):
     await notion_client.create_page(_draft(note_type="task", properties=props_json))
 
     sent = fake.pages.create.await_args.kwargs["properties"]
-    assert sent["Name"]["title"][0]["text"]["content"] == "Bump version"
+    # Title-property всегда из draft.title (см. _properties.build_properties),
+    # LLM-овский Name="Bump version" игнорируется ради единого источника истины.
+    assert sent["Name"]["title"][0]["text"]["content"] == "My Note"
     assert sent["Status"]["select"]["name"] == "Todo"
     assert sent["Priority"]["select"]["name"] == "High"
     assert sent["DueDate"]["date"]["start"] == "2026-05-10"

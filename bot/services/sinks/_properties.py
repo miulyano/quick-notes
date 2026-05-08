@@ -89,8 +89,11 @@ def build_properties(
         value = extracted.get(prop.name)
         if prop.kind == "title":
             has_title = True
-            if not value:
-                value = draft.title or "Без названия"
+            # title-property всегда берём из draft.title — LLM может отдельно
+            # положить «голую» тему в properties.<Name> (без даты-в-скобках,
+            # которую инструктирован добавить именно в `title`). Источник
+            # истины для заголовка страницы — draft.title.
+            value = draft.title or "Без названия"
         wrapped = wrap_property(prop.kind, value, shape=shape)
         if wrapped is not None:
             out[prop.name] = wrapped
