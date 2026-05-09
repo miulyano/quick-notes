@@ -63,3 +63,51 @@ def test_long_paragraph_splits_in_buildin():
 
 def test_empty_input_buildin():
     assert markdown_to_blocks_buildin("") == []
+
+
+# --- to_do blocks ----------------------------------------------------------
+
+
+def test_todo_unchecked_buildin():
+    blocks = markdown_to_blocks_buildin("- [ ] foo")
+    assert _types(blocks) == ["to_do"]
+    assert blocks[0]["data"]["checked"] is False
+    assert _text(blocks[0]) == "foo"
+
+
+def test_todo_checked_buildin():
+    blocks = markdown_to_blocks_buildin("- [x] done")
+    assert _types(blocks) == ["to_do"]
+    assert blocks[0]["data"]["checked"] is True
+
+
+def test_bullet_without_brackets_stays_bullet_buildin():
+    blocks = markdown_to_blocks_buildin("- foo")
+    assert _types(blocks) == ["bulleted_list_item"]
+
+
+# --- inline annotations ---------------------------------------------------
+
+
+def _rich(block):
+    return block["data"]["rich_text"]
+
+
+def test_inline_bold_buildin():
+    blocks = markdown_to_blocks_buildin("Hello **world**!")
+    rich = _rich(blocks[0])
+    assert [c["text"]["content"] for c in rich] == ["Hello ", "world", "!"]
+    assert rich[1]["annotations"] == {"bold": True}
+
+
+def test_inline_link_buildin():
+    blocks = markdown_to_blocks_buildin("see [docs](https://example.com)")
+    rich = _rich(blocks[0])
+    assert rich[1]["text"]["link"] == {"url": "https://example.com"}
+
+
+def test_inline_not_parsed_inside_code_fence_buildin():
+    blocks = markdown_to_blocks_buildin("```\n**not bold**\n```")
+    rich = blocks[0]["data"]["rich_text"]
+    assert rich[0]["text"]["content"] == "**not bold**"
+    assert "annotations" not in rich[0]
