@@ -5,6 +5,14 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 ## [Unreleased]
 
 ### Added
+- Поддержка `to_do` блоков для `- [ ]` / `- [x]` (включая `[X]` uppercase)
+  в Notion и Buildin sink'ах. Раньше чек-листы рендерились как обычные
+  bullet'ы с буквальным `[ ]` в тексте; теперь — нативные to-do блоки с
+  галочкой и состоянием `checked`.
+- Inline-аннотации в `rich_text`: `**bold**`, `*italic*` / `_italic_`
+  (с word-boundary защитой против `snake_case`), `` `code` ``,
+  `[text](url)`. Применяется ко всем block-типам кроме fenced code
+  (внутри ` ``` ` inline-разметка не парсится).
 - Новый тип заметок «🎥 Фильм» (`key="film"`) с полями `Director` (rich_text),
   `Year` (rich_text), `Genre` (multi_select) и `Rating` (select от ⭐ до
   ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐, 10 уровней). DB id — `NOTION_DB_FILM` (Notion) или

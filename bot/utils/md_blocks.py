@@ -1,9 +1,16 @@
 """Markdown → blocks (Notion + Buildin shapes).
 
-Парсер dumb по дизайну: heading (#/##/###), bullet/numbered lists, quote,
-code fences, paragraph. Inline markdown (bold/italic/links) НЕ парсится — текст
-едет как plain rich_text. Если потребуется — менять отдельным PR с реальной
-md-библиотекой.
+Block-level parser распознаёт: heading (#/##/###), bullet (`- foo`), to_do
+(`- [ ] foo` / `- [x] foo`), numbered list (`1. foo`), quote (`> foo`),
+fenced code (` ```lang `), paragraph.
+
+Inline-парсер на уровне `rich_text` поддерживает (без вложенности):
+  - `**bold**` → annotations.bold
+  - `*italic*` / `_italic_` → annotations.italic (с word-boundary защитой,
+    чтобы не ломать `snake_case` и `2*3`)
+  - `` `code` `` → annotations.code
+  - `[text](url)` → text.link.url
+Внутри fenced code (` ``` `) inline-парсинг отключён — содержимое едет как plain.
 
 Internal pipeline:
   raw markdown → parse_markdown() → list[ParsedBlock]  ── общий парсер
@@ -24,6 +31,7 @@ MAX_RICH_TEXT_LEN = 2000
 
 _HEADING_RE = re.compile(r"^(#{1,3})\s+(.+)$")
 _BULLET_RE = re.compile(r"^[-*]\s+(.+)$")
+_TODO_RE = re.compile(r"^\[([ xX])\]\s+(.+)$")
 _NUMBERED_RE = re.compile(r"^\d+\.\s+(.+)$")
 _QUOTE_RE = re.compile(r"^>\s+(.+)$")
 _CODE_FENCE_RE = re.compile(r"^```(\w*)$")
@@ -31,9 +39,9 @@ _CODE_FENCE_RE = re.compile(r"^```(\w*)$")
 
 @dataclass
 class ParsedBlock:
-    type: str                                # paragraph | heading_1 | … | code | quote
+    type: str                                # paragraph | heading_1 | … | code | quote | to_do
     content: str                             # текстовое тело
-    extra: dict[str, Any] = field(default_factory=dict)  # language, …
+    extra: dict[str, Any] = field(default_factory=dict)  # language, checked, …
 
 
 def parse_markdown(text: str) -> list[ParsedBlock]:
@@ -89,7 +97,15 @@ def parse_markdown(text: str) -> list[ParsedBlock]:
         bullet = _BULLET_RE.match(stripped)
         if bullet:
             flush_paragraph()
-            blocks.append(ParsedBlock("bulleted_list_item", bullet.group(1)))
+            bullet_text = bullet.group(1)
+            todo = _TODO_RE.match(bullet_text)
+            if todo:
+                marker, todo_text = todo.group(1), todo.group(2)
+                blocks.append(
+                    ParsedBlock("to_do", todo_text, {"checked": marker in "xX"})
+                )
+            else:
+                blocks.append(ParsedBlock("bulleted_list_item", bullet_text))
             i += 1
             continue
 
@@ -114,21 +130,158 @@ def parse_markdown(text: str) -> list[ParsedBlock]:
     return blocks
 
 
-def _rich_text(content: str) -> list[dict]:
-    """Сплит длинного content на чанки по MAX_RICH_TEXT_LEN."""
+# --- Inline parser ---------------------------------------------------------
+
+
+def _is_boundary(text: str, idx: int) -> bool:
+    """True если позиция вне строки или символ не alphanumeric.
+
+    Используется для word-boundary защиты `_italic_`, чтобы не ломать
+    идентификаторы вида `snake_case`.
+    """
+    if idx < 0 or idx >= len(text):
+        return True
+    return not text[idx].isalnum()
+
+
+def _tokenize_inline(text: str) -> list[tuple[str, dict, str | None]]:
+    """Разбить inline-текст на токены `(content, annotations, link_url)`.
+
+    Без поддержки вложенности (`**bold _italic_**` будет bold-only). Приоритет
+    маркеров: code → link → bold → italic → plain. Внутри code другие маркеры
+    игнорируются.
+    """
+    tokens: list[tuple[str, dict, str | None]] = []
+    plain_buf: list[str] = []
+    i = 0
+    n = len(text)
+
+    def flush_plain() -> None:
+        if plain_buf:
+            tokens.append(("".join(plain_buf), {}, None))
+            plain_buf.clear()
+
+    while i < n:
+        ch = text[i]
+
+        # Code: `text`
+        if ch == "`":
+            end = text.find("`", i + 1)
+            if end != -1 and end > i + 1:
+                flush_plain()
+                tokens.append((text[i + 1 : end], {"code": True}, None))
+                i = end + 1
+                continue
+
+        # Link: [text](url)
+        if ch == "[":
+            close = text.find("]", i + 1)
+            if close != -1 and close + 1 < n and text[close + 1] == "(":
+                paren = text.find(")", close + 2)
+                if paren != -1:
+                    label = text[i + 1 : close]
+                    url = text[close + 2 : paren]
+                    if label and url:
+                        flush_plain()
+                        tokens.append((label, {}, url))
+                        i = paren + 1
+                        continue
+
+        # Bold: **text**
+        if ch == "*" and i + 1 < n and text[i + 1] == "*":
+            end = text.find("**", i + 2)
+            if end != -1 and end > i + 2:
+                inner = text[i + 2 : end]
+                if inner and not inner[0].isspace() and not inner[-1].isspace() and "*" not in inner:
+                    flush_plain()
+                    tokens.append((inner, {"bold": True}, None))
+                    i = end + 2
+                    continue
+
+        # Italic: *text* (single asterisk)
+        if ch == "*":
+            end = text.find("*", i + 1)
+            if end != -1 and end > i + 1:
+                inner = text[i + 1 : end]
+                if (
+                    inner
+                    and not inner[0].isspace()
+                    and not inner[-1].isspace()
+                    and "*" not in inner
+                ):
+                    flush_plain()
+                    tokens.append((inner, {"italic": True}, None))
+                    i = end + 1
+                    continue
+
+        # Italic: _text_ (word-boundary safe → не ломает snake_case)
+        if ch == "_" and _is_boundary(text, i - 1):
+            end = text.find("_", i + 1)
+            if end != -1 and end > i + 1 and _is_boundary(text, end + 1):
+                inner = text[i + 1 : end]
+                if (
+                    inner
+                    and not inner[0].isspace()
+                    and not inner[-1].isspace()
+                    and "_" not in inner
+                ):
+                    flush_plain()
+                    tokens.append((inner, {"italic": True}, None))
+                    i = end + 1
+                    continue
+
+        plain_buf.append(ch)
+        i += 1
+
+    flush_plain()
+    return tokens
+
+
+def _chunked(content: str) -> list[str]:
+    return [content[i : i + MAX_RICH_TEXT_LEN] for i in range(0, len(content), MAX_RICH_TEXT_LEN)]
+
+
+def _rich_text(content: str, parse_inline: bool = True) -> list[dict]:
+    """Преобразовать строку в массив rich_text объектов с inline-аннотациями.
+
+    Длинные токены чанкуются по `MAX_RICH_TEXT_LEN` (cap Notion на rich_text
+    element). При `parse_inline=False` (например, внутри code-блока) inline
+    маркеры игнорируются, всё едет plain.
+    """
     if not content:
         return [{"type": "text", "text": {"content": ""}}]
-    return [
-        {"type": "text", "text": {"content": content[i : i + MAX_RICH_TEXT_LEN]}}
-        for i in range(0, len(content), MAX_RICH_TEXT_LEN)
-    ]
+
+    if parse_inline:
+        tokens = _tokenize_inline(content)
+    else:
+        tokens = [(content, {}, None)]
+
+    out: list[dict] = []
+    for token_text, annotations, link in tokens:
+        if not token_text:
+            continue
+        for chunk in _chunked(token_text):
+            obj: dict[str, Any] = {"type": "text", "text": {"content": chunk}}
+            if link:
+                obj["text"]["link"] = {"url": link}
+            if annotations:
+                obj["annotations"] = dict(annotations)
+            out.append(obj)
+
+    if not out:
+        return [{"type": "text", "text": {"content": ""}}]
+    return out
+
+
+# --- Shape wrappers --------------------------------------------------------
 
 
 def markdown_to_blocks(text: str) -> list[dict]:
     """Notion shape: `{object: block, type: <t>, <t>: {rich_text: [...], **extra}}`."""
     out: list[dict] = []
     for pb in parse_markdown(text):
-        payload = {"rich_text": _rich_text(pb.content), **pb.extra}
+        rich = _rich_text(pb.content, parse_inline=pb.type != "code")
+        payload = {"rich_text": rich, **pb.extra}
         out.append({"object": "block", "type": pb.type, pb.type: payload})
     return out
 
@@ -141,7 +294,8 @@ def markdown_to_blocks_buildin(text: str) -> list[dict]:
     """
     out: list[dict] = []
     for pb in parse_markdown(text):
-        data = {"rich_text": _rich_text(pb.content), **pb.extra}
+        rich = _rich_text(pb.content, parse_inline=pb.type != "code")
+        data = {"rich_text": rich, **pb.extra}
         out.append({"type": pb.type, "data": data})
     return out
 
