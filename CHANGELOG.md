@@ -5,6 +5,12 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 ## [Unreleased]
 
 ### Added
+- Новый тип заметок «🎥 Фильм» (`key="film"`) с полями `Director` (rich_text),
+  `Year` (rich_text), `Genre` (multi_select) и `Rating` (select от ⭐ до
+  ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐, 10 уровней). DB id — `NOTION_DB_FILM` (Notion) или
+  `BUILDIN_DB_<WS>_FILM` (Buildin), `template_id="default"` (passthrough тела
+  от LLM). Plural-заголовок full-page DB — «🎥 Фильмы». Дата формирования
+  заметки покрывается автоматическим `CreatedAt`.
 - Новый тип заметок «📚 Книга» (`key="book"`) с полями `Author` (rich_text)
   и `Rating` (select от ⭐ до ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐, 10 уровней). DB id —
   `NOTION_DB_BOOK` (Notion) или `BUILDIN_DB_<WS>_BOOK` (Buildin),

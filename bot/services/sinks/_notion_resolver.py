@@ -33,6 +33,7 @@ _PLURAL_TITLES: dict[str, str] = {
     "work": "💼 Рабочее",
     "personal": "🌱 Личное",
     "book": "📚 Книги",
+    "film": "🎥 Фильмы",
 }
 
 
