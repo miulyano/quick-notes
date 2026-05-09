@@ -117,3 +117,46 @@ def test_build_properties_adds_default_name_when_no_title_prop():
     out = build_properties(nt, draft, shape="notion")
     assert "Name" in out
     assert out["Name"]["title"][0]["text"]["content"] == "My note"
+
+
+def test_build_properties_date_taken_from_title():
+    """Date property синхронизируется с датой в title — даже если LLM
+    положила в extracted.Date другую дату."""
+    nt = _NoteType([_Prop("Name", "title"), _Prop("Date", "date")])
+    extracted = {"Date": "2026-01-01"}
+    draft = _draft(properties_json=json.dumps(extracted), title="Тема (08.05.2026)")
+    out = build_properties(nt, draft, shape="notion")
+    assert out["Date"] == {"date": {"start": "2026-05-08"}}
+
+
+def test_build_properties_date_falls_back_to_extracted_when_title_has_no_date():
+    nt = _NoteType([_Prop("Name", "title"), _Prop("Date", "date")])
+    extracted = {"Date": "2026-05-08"}
+    draft = _draft(properties_json=json.dumps(extracted), title="Просто тема")
+    out = build_properties(nt, draft, shape="notion")
+    assert out["Date"] == {"date": {"start": "2026-05-08"}}
+
+
+def test_build_properties_date_invalid_in_title_falls_back():
+    """Если в title невалидная дата (30.02.2026) — берём extracted."""
+    nt = _NoteType([_Prop("Name", "title"), _Prop("Date", "date")])
+    extracted = {"Date": "2026-01-01"}
+    draft = _draft(properties_json=json.dumps(extracted), title="Тема (30.02.2026)")
+    out = build_properties(nt, draft, shape="notion")
+    assert out["Date"] == {"date": {"start": "2026-01-01"}}
+
+
+def test_build_properties_due_date_not_overridden_by_title():
+    """Прочие date-property (DueDate у task) не должны цеплять дату из title."""
+    nt = _NoteType([_Prop("Name", "title"), _Prop("DueDate", "date")])
+    extracted = {"DueDate": "2026-01-01"}
+    draft = _draft(properties_json=json.dumps(extracted), title="Сделать (08.05.2026)")
+    out = build_properties(nt, draft, shape="notion")
+    assert out["DueDate"] == {"date": {"start": "2026-01-01"}}
+
+
+def test_build_properties_date_buildin_shape():
+    nt = _NoteType([_Prop("Name", "title"), _Prop("Date", "date")])
+    draft = _draft(properties_json=None, title="Тема (08.05.2026)")
+    out = build_properties(nt, draft, shape="buildin")
+    assert out["Date"] == {"type": "date", "date": {"start": "2026-05-08"}}
