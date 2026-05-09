@@ -127,3 +127,8 @@ def test_unknown_type_falls_to_default():
 def test_book_passthrough():
     body = "Отличная книга про когнитивные искажения. Запомнить главу 3."
     assert render("book", body) == body
+
+
+def test_film_passthrough():
+    body = "Хороший фильм. Финал слабоват."
+    assert render("film", body) == body

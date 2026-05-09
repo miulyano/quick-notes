@@ -50,3 +50,26 @@ def test_book_properties():
     assert len(rating.select_options) == 10
     assert rating.select_options[0] == "⭐"
     assert rating.select_options[-1] == "⭐" * 10
+
+
+def test_film_type_registered():
+    t = get("film")
+    assert t.key == "film"
+    assert t.label == "🎥 Фильм"
+    assert t.db_env == "NOTION_DB_FILM"
+    assert t.template_id == "default"
+
+
+def test_film_properties():
+    t = get("film")
+    by_name = {p.name: p for p in t.properties}
+    assert {"Name", "Director", "Year", "Genre", "Rating"} <= set(by_name)
+    assert by_name["Name"].kind == "title"
+    assert by_name["Director"].kind == "rich_text"
+    assert by_name["Year"].kind == "rich_text"
+    assert by_name["Genre"].kind == "multi_select"
+    rating = by_name["Rating"]
+    assert rating.kind == "select"
+    assert len(rating.select_options) == 10
+    assert rating.select_options[0] == "⭐"
+    assert rating.select_options[-1] == "⭐" * 10
