@@ -12,6 +12,12 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
   заметки покрывается автоматическим `CreatedAt`.
 
 ### Fixed
+- Notion sink авторезолвер DB для типа `book` создавал базу с заголовком
+  `📚 Книга` (singular из `note_type.label`), потому что `_PLURAL_TITLES`
+  в `bot/services/sinks/_notion_resolver.py` не содержал ключа `book`.
+  Добавлен `"book": "📚 Книги"` — синхронизировано с
+  `scripts/setup_buildin_dbs.py`. Существующие БД не переименовываются
+  автоматически; поправить вручную в Notion.
 - Заголовок страницы в Notion для всех типов заметок теперь всегда берётся
   из `draft.title` (включая `(DD.MM.YYYY)` для `meeting`/`1on1`). Раньше
   LLM-овский `properties.Name` (без даты) перетирал `draft.title` —
