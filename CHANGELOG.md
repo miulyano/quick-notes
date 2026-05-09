@@ -22,6 +22,11 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
   из `draft.title` (включая `(DD.MM.YYYY)` для `meeting`/`1on1`). Раньше
   LLM-овский `properties.Name` (без даты) перетирал `draft.title` —
   итоговая страница в Notion получалась без даты в заголовке.
+- `Date` property для типов `meeting`/`1on1` теперь синхронизируется с
+  датой `(DD.MM.YYYY)` из title, а не берётся отдельным полем из LLM-ответа.
+  Раньше LLM могла положить в title одну дату, а в `properties.Date` —
+  другую (или сегодняшнюю как fallback); после ручного редактирования title
+  в web-editor `Date` тоже уезжал. Теперь title — единый источник истины.
 
 ### Changed
 - Формат даты в title заметок типа `meeting` и `1on1`: `(YYYY-MM-DD)` →

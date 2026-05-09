@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import re
 from typing import Any, Literal, Optional
 
 from bot.domain.note_types import NoteType
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 Shape = Literal["notion", "buildin"]
 
+_DATE_IN_TITLE_RE = re.compile(r"\((\d{2})\.(\d{2})\.(\d{4})\)")
+
 
 def _rich_text(value: str) -> list[dict]:
     return [{"type": "text", "text": {"content": value}}]
@@ -30,6 +33,29 @@ def _rich_text(value: str) -> list[dict]:
 
 def _now_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+
+def _extract_date_from_title(title: Optional[str]) -> Optional[str]:
+    """Найти `(DD.MM.YYYY)` в title и вернуть ISO `YYYY-MM-DD`.
+
+    LLM по промту дописывает дату в title в формате `«Тема (DD.MM.YYYY)»`
+    для meeting/1on1. Берём её как источник истины для property `Date`,
+    чтобы заголовок и property не разъезжались (особенно после ручного
+    редактирования title в web-editor). Невалидные даты (30.02.2026)
+    отбрасываются — fallback на extracted-значение.
+    """
+    if not title:
+        return None
+    match = None
+    for m in _DATE_IN_TITLE_RE.finditer(title):
+        match = m  # берём последнее вхождение — по промту дата в конце
+    if match is None:
+        return None
+    day, month, year = (int(g) for g in match.groups())
+    try:
+        return _dt.date(year, month, day).isoformat()
+    except ValueError:
+        return None
 
 
 def _wrap(shape: Shape, kind: str, body: dict | bool) -> dict:
@@ -85,6 +111,7 @@ def build_properties(
 
     out: dict[str, dict] = {}
     has_title = False
+    title_date = _extract_date_from_title(draft.title)
     for prop in note_type.properties:
         value = extracted.get(prop.name)
         if prop.kind == "title":
@@ -94,6 +121,10 @@ def build_properties(
             # которую инструктирован добавить именно в `title`). Источник
             # истины для заголовка страницы — draft.title.
             value = draft.title or "Без названия"
+        elif prop.kind == "date" and prop.name == "Date" and title_date:
+            # Date property синхронизируется с датой в title (meeting/1on1).
+            # Иначе при редактировании title в web-editor Date уезжает.
+            value = title_date
         wrapped = wrap_property(prop.kind, value, shape=shape)
         if wrapped is not None:
             out[prop.name] = wrapped
