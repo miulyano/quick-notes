@@ -230,14 +230,54 @@ async def _process_real(
 
     formatted = render(note_type, body, extras)
 
+    properties_dict = properties if isinstance(properties, dict) else {}
+    if note_type == "film":
+        properties_dict = await _enrich_film_properties(title, properties_dict)
+
     return ProcessedNote(
         note_type=note_type,
         title=title,
         formatted=formatted,
         workspace=workspace,
-        properties=properties if isinstance(properties, dict) else {},
+        properties=properties_dict,
         extras=extras if isinstance(extras, dict) else {},
     )
+
+
+async def _enrich_film_properties(title: str, properties: dict) -> dict:
+    """Дозаполнить пустые Director/Year/Genre из TMDb (knowledge-cutoff fix).
+
+    Перетираем только пустые поля — explicit пользовательские/LLM-значения
+    не трогаем. При отсутствии TMDB_API_KEY или ошибке API — no-op.
+    """
+    from bot.services import tmdb
+
+    director_empty = not (properties.get("Director") or "").strip() if isinstance(
+        properties.get("Director"), str
+    ) else not properties.get("Director")
+    year_empty = not (properties.get("Year") or "").strip() if isinstance(
+        properties.get("Year"), str
+    ) else not properties.get("Year")
+    genre_value = properties.get("Genre")
+    genre_empty = not genre_value or (
+        isinstance(genre_value, list) and not [g for g in genre_value if g]
+    )
+
+    if not (director_empty or year_empty or genre_empty):
+        return properties
+
+    enriched = await tmdb.enrich_film(title)
+    if not enriched:
+        return properties
+
+    result = dict(properties)
+    if director_empty and enriched.get("director"):
+        result["Director"] = enriched["director"]
+    if year_empty and enriched.get("year"):
+        result["Year"] = enriched["year"]
+    if genre_empty and enriched.get("genres"):
+        result["Genre"] = enriched["genres"]
+    return result
 
 
 async def _process_stub(raw_text: str) -> ProcessedNote:

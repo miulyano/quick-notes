@@ -4,6 +4,14 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Added
+- TMDb (themoviedb.org) дозаполнение для типа `film`: после LLM-классификации
+  бот ходит в TMDb по `title` и заполняет пустые `Director`/`Year`/`Genre`
+  из официальной базы. Покрывает knowledge cutoff gpt-4o (~окт 2023): фильмы
+  2024-25 теперь распознаются корректно. Новый env `TMDB_API_KEY` — пусто =
+  дозаполнение отключено. Explicit значения от LLM/пользователя не
+  перетираются, только пустые поля.
+
 ### Changed
 - Финальное сообщение после сохранения теперь показывает заголовок заметки
   (жирным), её тип и воркспейс (`<i>📝 Заметка · Личное</i>`) над ссылкой

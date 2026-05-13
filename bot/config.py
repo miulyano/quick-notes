@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     FORCE_LANGUAGE_CODE: Optional[str] = None
     TEMP_DIR: str = "/tmp/notes-bot"
 
+    # TMDb (themoviedb.org) v3 API key. Используется для дозаполнения
+    # Director/Year/Genre фильмов когда LLM (knowledge cutoff ~2023) их не
+    # знает. Без ключа — film-заметки сохраняются с теми полями, что LLM
+    # извлёк из текста (часто пусто для новых релизов). Регистрация:
+    # https://www.themoviedb.org/settings/api → API Key (v3 auth).
+    TMDB_API_KEY: Optional[str] = None
+
     # Web App (Mini App) для правки draft в чате. Если WEBAPP_BASE_URL пуст —
     # кнопка «✏️ Edit» не показывается, aiohttp-сервер не стартует.
     # Поддомен должен быть зарегистрирован в BotFather через /setdomain.
