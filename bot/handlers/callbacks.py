@@ -106,6 +106,7 @@ async def on_set_type(cb: CallbackQuery) -> None:
                     type_key,
                     draft.workspace,
                     draft.extras_json,
+                    draft.properties,
                 ),
                 reply_markup=preview_keyboard(
                     draft_id, show_kind_toggle=type_key == "meeting"
@@ -148,6 +149,7 @@ async def on_set_workspace(cb: CallbackQuery) -> None:
                     draft.note_type or "note",
                     ws_key,
                     draft.extras_json,
+                    draft.properties,
                 ),
                 reply_markup=preview_keyboard(
                     draft_id, show_kind_toggle=(draft.note_type or "") == "meeting"
@@ -249,12 +251,13 @@ async def on_toggle_kind(cb: CallbackQuery) -> None:
         return
 
     extras_json = json.dumps(processed.extras, ensure_ascii=False)
+    properties_json = json.dumps(processed.properties, ensure_ascii=False)
     await drafts.update(
         draft_id,
         note_type=processed.note_type,
         title=processed.title,
         formatted=processed.formatted,
-        properties=json.dumps(processed.properties, ensure_ascii=False),
+        properties=properties_json,
         workspace=processed.workspace,
         extras_json=extras_json,
     )
@@ -268,6 +271,7 @@ async def on_toggle_kind(cb: CallbackQuery) -> None:
                     processed.note_type,
                     processed.workspace,
                     extras_json,
+                    properties_json,
                 ),
                 reply_markup=preview_keyboard(draft_id, show_kind_toggle=True),
             )

@@ -131,7 +131,9 @@ async def handle_photo(
         extras_json=extras_json,
     )
 
-    preview = format_preview(title, formatted, note_type, workspace, extras_json)
+    preview = format_preview(
+        title, formatted, note_type, workspace, extras_json, properties_json
+    )
     sent = await message.answer(
         preview,
         reply_markup=preview_keyboard(draft_id, show_kind_toggle=note_type == "meeting"),

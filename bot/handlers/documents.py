@@ -143,19 +143,25 @@ async def handle_document(message: Message, bot: Bot) -> None:
             await progress.fail(f"Не получилось обработать: {exc}")
             return
 
+        properties_json = json.dumps(processed.properties, ensure_ascii=False)
         await drafts.update(
             draft_id,
             status="awaiting_confirm",
             note_type=processed.note_type,
             title=processed.title,
             formatted=processed.formatted,
-            properties=json.dumps(processed.properties, ensure_ascii=False),
+            properties=properties_json,
             workspace=processed.workspace,
         )
         await progress.finish()
 
     preview = format_preview(
-        processed.title, processed.formatted, processed.note_type, processed.workspace
+        processed.title,
+        processed.formatted,
+        processed.note_type,
+        processed.workspace,
+        None,
+        properties_json,
     )
     sent = await message.answer(preview, reply_markup=preview_keyboard(draft_id))
     await drafts.update(draft_id, preview_msg_id=sent.message_id)

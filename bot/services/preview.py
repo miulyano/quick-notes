@@ -33,6 +33,7 @@ async def refresh_preview(bot: Bot, draft: Draft) -> None:
                 draft.note_type or "note",
                 draft.workspace,
                 draft.extras_json,
+                draft.properties,
             ),
             chat_id=draft.chat_id,
             message_id=draft.preview_msg_id,

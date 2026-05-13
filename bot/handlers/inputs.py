@@ -70,12 +70,29 @@ def _meeting_kind_label(extras_json: str | None) -> str:
     return " (sync)" if kind == "sync" else ""
 
 
+def _rating_suffix(properties_json: str | None) -> str:
+    """Возвращает ' · ⭐⭐⭐' если в properties стоит непустой Rating."""
+    if not properties_json:
+        return ""
+    try:
+        props = json.loads(properties_json)
+    except (TypeError, ValueError):
+        return ""
+    if not isinstance(props, dict):
+        return ""
+    rating = props.get("Rating")
+    if isinstance(rating, str) and rating.strip():
+        return f" · {rating.strip()}"
+    return ""
+
+
 def format_preview(
     title: str,
     body: str,
     note_type_key: str,
     workspace_key: str,
     extras_json: str | None = None,
+    properties_json: str | None = None,
 ) -> str:
     note_type = get_note_type(note_type_key)
     workspace = get_workspace(workspace_key)
@@ -85,9 +102,11 @@ def format_preview(
         else body[:PREVIEW_BODY_LIMIT] + PREVIEW_TRUNCATE_MARKER
     )
     kind_suffix = _meeting_kind_label(extras_json) if note_type_key == "meeting" else ""
+    rating_suffix = _rating_suffix(properties_json)
     return (
         f"<b>{title}</b>\n"
-        f"<i>{note_type.label}{kind_suffix} · 📁 {workspace.label}</i>\n\n{body_short}"
+        f"<i>{note_type.label}{kind_suffix} · 📁 {workspace.label}{rating_suffix}</i>"
+        f"\n\n{body_short}"
     )
 
 
@@ -127,13 +146,14 @@ async def handle_text(message: Message) -> None:
         await progress.finish()
 
     extras_json = json.dumps(processed.extras, ensure_ascii=False)
+    properties_json = json.dumps(processed.properties, ensure_ascii=False)
     await drafts.update(
         draft_id,
         status="awaiting_confirm",
         note_type=processed.note_type,
         title=processed.title,
         formatted=processed.formatted,
-        properties=json.dumps(processed.properties, ensure_ascii=False),
+        properties=properties_json,
         workspace=processed.workspace,
         extras_json=extras_json,
     )
@@ -144,6 +164,7 @@ async def handle_text(message: Message) -> None:
         processed.note_type,
         processed.workspace,
         extras_json,
+        properties_json,
     )
     sent = await message.answer(
         preview,
