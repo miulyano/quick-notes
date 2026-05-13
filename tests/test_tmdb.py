@@ -52,6 +52,10 @@ async def test_successful_lookup(monkeypatch):
                         {"id": 12, "name": "Приключения"},
                         {"id": 18, "name": "Драма"},
                     ],
+                    "production_countries": [
+                        {"iso_3166_1": "US", "name": "United States of America"},
+                        {"iso_3166_1": "GB", "name": "United Kingdom"},
+                    ],
                     "credits": {
                         "crew": [
                             {"job": "Director", "name": "Christopher Nolan"},
@@ -71,6 +75,7 @@ async def test_successful_lookup(monkeypatch):
         "director": "Christopher Nolan",
         "year": "2014",
         "genres": ["Приключения", "Драма"],
+        "countries": ["США", "Великобритания"],
     }
 
 
@@ -93,6 +98,9 @@ async def test_fallback_to_en_us_when_ru_empty(monkeypatch):
                 json={
                     "release_date": "2025-08-29",
                     "genres": [{"id": 35, "name": "Комедия"}],
+                    "production_countries": [
+                        {"iso_3166_1": "GB", "name": "United Kingdom"},
+                    ],
                     "credits": {"crew": [{"job": "Director", "name": "Jay Roach"}]},
                 },
             )
@@ -108,6 +116,7 @@ async def test_fallback_to_en_us_when_ru_empty(monkeypatch):
         "director": "Jay Roach",
         "year": "2025",
         "genres": ["Комедия"],
+        "countries": ["Великобритания"],
     }
 
 
@@ -171,3 +180,34 @@ async def test_multiple_directors_joined(monkeypatch):
     assert result["director"] == "A, B"
     assert result["year"] == "2010"
     assert result["genres"] == []
+    assert result["countries"] == []
+
+
+async def test_country_fallback_to_english_name(monkeypatch):
+    """ISO code не в _COUNTRY_RU → fallback на TMDb-имя (English)."""
+    monkeypatch.setattr("bot.services.tmdb.settings.TMDB_API_KEY", "k")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/search/movie" in request.url.path:
+            return httpx.Response(
+                200, json={"results": [{"id": 1, "title": "X"}]}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "release_date": "2020-01-01",
+                "genres": [],
+                "production_countries": [
+                    {"iso_3166_1": "ZZ", "name": "Atlantis"},
+                ],
+                "credits": {"crew": []},
+            },
+        )
+
+    tmdb.set_client(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+
+    result = await tmdb.enrich_film("X")
+    assert result is not None
+    assert result["countries"] == ["Atlantis"]

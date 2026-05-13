@@ -245,25 +245,31 @@ async def _process_real(
 
 
 async def _enrich_film_properties(title: str, properties: dict) -> dict:
-    """Дозаполнить пустые Director/Year/Genre из TMDb (knowledge-cutoff fix).
+    """Дозаполнить пустые Director/Year/Genre/Place из TMDb (knowledge-cutoff fix).
 
     Перетираем только пустые поля — explicit пользовательские/LLM-значения
     не трогаем. При отсутствии TMDB_API_KEY или ошибке API — no-op.
     """
     from bot.services import tmdb
 
-    director_empty = not (properties.get("Director") or "").strip() if isinstance(
-        properties.get("Director"), str
-    ) else not properties.get("Director")
-    year_empty = not (properties.get("Year") or "").strip() if isinstance(
-        properties.get("Year"), str
-    ) else not properties.get("Year")
-    genre_value = properties.get("Genre")
-    genre_empty = not genre_value or (
-        isinstance(genre_value, list) and not [g for g in genre_value if g]
-    )
+    def _str_empty(key: str) -> bool:
+        val = properties.get(key)
+        if isinstance(val, str):
+            return not val.strip()
+        return not val
 
-    if not (director_empty or year_empty or genre_empty):
+    def _list_empty(key: str) -> bool:
+        val = properties.get(key)
+        if isinstance(val, list):
+            return not [v for v in val if v]
+        return not val
+
+    director_empty = _str_empty("Director")
+    year_empty = _str_empty("Year")
+    place_empty = _str_empty("Place")
+    genre_empty = _list_empty("Genre")
+
+    if not (director_empty or year_empty or genre_empty or place_empty):
         return properties
 
     enriched = await tmdb.enrich_film(title)
@@ -277,6 +283,8 @@ async def _enrich_film_properties(title: str, properties: dict) -> dict:
         result["Year"] = enriched["year"]
     if genre_empty and enriched.get("genres"):
         result["Genre"] = enriched["genres"]
+    if place_empty and enriched.get("countries"):
+        result["Place"] = ", ".join(enriched["countries"])
     return result
 
 
