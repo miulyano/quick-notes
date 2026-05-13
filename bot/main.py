@@ -9,6 +9,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from bot.config import settings
+from bot.domain import note_types, workspaces
 from bot.domain.note_types import TYPES
 from bot.domain.workspaces import WORKSPACES
 from bot.handlers import callbacks, commands, documents, inputs, photo, voice
@@ -109,11 +110,20 @@ def _make_save_callbacks(bot: Bot):
         if draft.preview_msg_id is None:
             return
         provider_label = "Buildin" if settings.NOTES_PROVIDER == "buildin" else "Notion"
+        lines: list[str] = []
+        if draft.title:
+            lines.append(f"<b>{html.escape(draft.title)}</b>")
+        nt_label = note_types.get(draft.note_type or "").label
+        ws_label = workspaces.get(draft.workspace or "").label
+        lines.append(f"<i>{html.escape(nt_label)} · {html.escape(ws_label)}</i>")
         if page_ref.url:
             url_attr = html.escape(page_ref.url, quote=True)
-            text = f'✅ <a href="{url_attr}">Открыть в {provider_label}</a>'
+            lines.append(f'✅ <a href="{url_attr}">Открыть в {provider_label}</a>')
         else:
-            text = f"✅ Сохранено в {provider_label}\n<code>{page_ref.id}</code>"
+            lines.append(
+                f"✅ Сохранено в {provider_label}\n<code>{html.escape(page_ref.id)}</code>"
+            )
+        text = "\n".join(lines)
         with suppress(Exception):
             await bot.edit_message_text(
                 chat_id=draft.chat_id,

@@ -4,6 +4,12 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Changed
+- Финальное сообщение после сохранения теперь показывает заголовок заметки
+  (жирным), её тип и воркспейс (`<i>📝 Заметка · Личное</i>`) над ссылкой
+  «Открыть в Notion/Buildin». Если у драфта пустой `title` — строка
+  заголовка пропускается.
+
 ### Added
 - Поддержка `to_do` блоков для `- [ ]` / `- [x]` (включая `[X]` uppercase)
   в Notion и Buildin sink'ах. Раньше чек-листы рендерились как обычные
