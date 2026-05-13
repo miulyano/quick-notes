@@ -266,10 +266,10 @@ async def _enrich_film_properties(title: str, properties: dict) -> dict:
 
     director_empty = _str_empty("Director")
     year_empty = _str_empty("Year")
-    place_empty = _str_empty("Place")
+    country_empty = _str_empty("Country")
     genre_empty = _list_empty("Genre")
 
-    if not (director_empty or year_empty or genre_empty or place_empty):
+    if not (director_empty or year_empty or genre_empty or country_empty):
         return properties
 
     enriched = await tmdb.enrich_film(title)
@@ -283,8 +283,8 @@ async def _enrich_film_properties(title: str, properties: dict) -> dict:
         result["Year"] = enriched["year"]
     if genre_empty and enriched.get("genres"):
         result["Genre"] = enriched["genres"]
-    if place_empty and enriched.get("countries"):
-        result["Place"] = ", ".join(enriched["countries"])
+    if country_empty and enriched.get("countries"):
+        result["Country"] = ", ".join(enriched["countries"])
     return result
 
 

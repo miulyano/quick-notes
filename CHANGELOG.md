@@ -11,10 +11,12 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
   2024-25 теперь распознаются корректно. Новый env `TMDB_API_KEY` — пусто =
   дозаполнение отключено. Explicit значения от LLM/пользователя не
   перетираются, только пустые поля.
-- Property `Place` (rich_text) для типа `film` — страна производства фильма.
+- Property `Country` (rich_text) для типа `film` — страна производства фильма.
   Дозаполняется из TMDb `production_countries` с маппингом ISO-кодов в
   русские имена (топ-50 стран), fallback на TMDb-имя (English) для редких.
-  Несколько стран соединяются через `, `.
+  Несколько стран соединяются через `, `. (Раньше называлось `Place`, но
+  конфликтовало с Notion-native property type `place`/геолокация — теперь
+  нейтральное имя `Country`.)
 
 ### Changed
 - Финальное сообщение после сохранения теперь показывает заголовок заметки
