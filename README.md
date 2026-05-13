@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.23.0-blue)
+![version](https://img.shields.io/badge/version-0.24.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -282,6 +282,15 @@ Per-(workspace × type): `NOTION_DB_<WS>_<TYPE>` (например
 (тип `note`, body = raw input). Модель меняется через `OPENAI_MODEL`
 (по умолчанию `gpt-4o`).
 
+## TMDb (для заметок типа film)
+
+`TMDB_API_KEY` в `.env` — для заметок типа `film` бот ходит в TMDb
+(themoviedb.org) и дозаполняет пустые `Director`/`Year`/`Genre`. Покрывает
+knowledge cutoff модели (gpt-4o знает только релизы до ~окт 2023). TMDb
+бесплатен, лимиты для личного бота избыточны. Регистрация:
+https://www.themoviedb.org/settings/api → API Key (v3 auth). Пустой ключ —
+дозаполнение отключено, поля заполняются только из LLM-extraction.
+
 ## Под себя
 
 Реестры в `bot/domain/` — это setup автора. Бот рассчитан на то, что
@@ -367,6 +376,7 @@ bot/
 │   ├── notion_client.py   # compat-shim → sinks/notion.py
 │   ├── preview.py         # refresh_preview helper (in-place edit_message_text)
 │   ├── transcriber.py     # OpenAI Speech-to-Text (gpt-4o-mini-transcribe default)
+│   ├── tmdb.py            # TMDb lookup для film: дозаполнение Director/Year/Genre
 │   └── sinks/             # провайдеры хранилища заметок
 │       ├── __init__.py    # Sink Protocol
 │       ├── _properties.py # общий property builder (shape="notion"|"buildin")
