@@ -31,6 +31,30 @@ TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_TIMEOUT_SECS = 5.0
 
 
+# ISO 3166-1 alpha-2 → русское имя для production_countries.
+# TMDb отдаёт production_countries.name всегда на English (`language=ru-RU`
+# не локализует страны, только genres/overview). Маппим топ-50 стран в
+# русские названия — для остальных fallback на TMDb-имя (English).
+_COUNTRY_RU: dict[str, str] = {
+    "US": "США", "GB": "Великобритания", "FR": "Франция",
+    "DE": "Германия", "IT": "Италия", "ES": "Испания",
+    "JP": "Япония", "KR": "Корея", "CN": "Китай", "RU": "Россия",
+    "IN": "Индия", "CA": "Канада", "AU": "Австралия",
+    "BR": "Бразилия", "MX": "Мексика", "PL": "Польша",
+    "SE": "Швеция", "DK": "Дания", "NO": "Норвегия",
+    "FI": "Финляндия", "NL": "Нидерланды", "BE": "Бельгия",
+    "AT": "Австрия", "CH": "Швейцария", "IE": "Ирландия",
+    "PT": "Португалия", "GR": "Греция", "TR": "Турция",
+    "IR": "Иран", "IL": "Израиль", "TH": "Таиланд",
+    "HK": "Гонконг", "TW": "Тайвань", "SG": "Сингапур",
+    "AR": "Аргентина", "CL": "Чили", "CO": "Колумбия",
+    "UA": "Украина", "BY": "Беларусь", "GE": "Грузия",
+    "CZ": "Чехия", "HU": "Венгрия", "RO": "Румыния",
+    "ZA": "ЮАР", "EG": "Египет", "NZ": "Новая Зеландия",
+    "IS": "Исландия", "BG": "Болгария", "SK": "Словакия",
+}
+
+
 _client_override: Optional[httpx.AsyncClient] = None
 
 
@@ -132,8 +156,17 @@ async def _fetch_movie_details(
     ]
     genres = [name for name in genres if name]
 
+    countries: list[str] = []
+    for entry in (data.get("production_countries") or []):
+        iso = (entry.get("iso_3166_1") or "").upper().strip()
+        fallback = (entry.get("name") or "").strip()
+        ru_name = _COUNTRY_RU.get(iso, fallback)
+        if ru_name:
+            countries.append(ru_name)
+
     return {
         "director": ", ".join(directors),
         "year": year,
         "genres": genres,
+        "countries": countries,
     }
