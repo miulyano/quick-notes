@@ -70,6 +70,12 @@ WORKSPACES: tuple[Workspace, ...] = (
         description="AI/ML, эксперименты с ИИ, заметки по теме искусственного интеллекта.",
         space_env="BUILDIN_SPACE_AI_PATH",
     ),
+    Workspace(
+        key="blog",
+        label="Блог",
+        description="Идеи постов, черновики статей, публичные тексты и темы для блога.",
+        space_env="BUILDIN_SPACE_BLOG",
+    ),
 )
 
 

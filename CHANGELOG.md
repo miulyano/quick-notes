@@ -5,6 +5,8 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 ## [Unreleased]
 
 ### Added
+- Новый workspace `blog` («Блог») для идей постов, черновиков статей и
+  публичных текстов. Новый env `BUILDIN_SPACE_BLOG`.
 - TMDb (themoviedb.org) дозаполнение для типа `film`: после LLM-классификации
   бот ходит в TMDb по `title` и заполняет пустые `Director`/`Year`/`Genre`
   из официальной базы. Покрывает knowledge cutoff gpt-4o (~окт 2023): фильмы

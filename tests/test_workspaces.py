@@ -10,7 +10,7 @@ from bot.domain.workspaces import (
 
 def test_registry_contains_expected_keys():
     keys = all_keys()
-    assert keys == ("personal", "work", "family", "growth", "ai_path")
+    assert keys == ("personal", "work", "family", "growth", "ai_path", "blog")
 
 
 def test_default_workspace_resolves():
