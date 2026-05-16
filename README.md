@@ -1,6 +1,6 @@
 # notes-bot
 
-![version](https://img.shields.io/badge/version-0.25.1-blue)
+![version](https://img.shields.io/badge/version-0.26.0-blue)
 
 Telegram-бот для персональных заметок: принимает текст, голос, видео, документы,
 форварды; транскрибирует медиа, извлекает текст из файлов (txt/md/csv/pdf/docx),
@@ -126,6 +126,7 @@ DB-properties — это **реф-пример**, не «единственны�
 | `family` (Семья) | `BUILDIN_SPACE_FAMILY` |
 | `growth` (Куда расти?) | `BUILDIN_SPACE_GROWTH` |
 | `ai_path` (Путь ИИ) | `BUILDIN_SPACE_AI_PATH` |
+| `blog` (Блог) | `BUILDIN_SPACE_BLOG` |
 
 ### 3. Базы (databases)
 
@@ -641,7 +642,7 @@ pytest -v
 | `DATABASE_PATH` | Путь к файлу SQLite (по умолчанию `data/notes.db`) |
 | `NOTES_PROVIDER` | `notion` (default) или `buildin` |
 | `BUILDIN_TOKEN` | Токен Buildin integration. Пусто → stub-режим |
-| `BUILDIN_SPACE_<WS>` | UUID space'а workspace'а (`PERSONAL`, `WORK`, `FAMILY`, `GROWTH`, `AI_PATH`). Нужны для setup-script |
+| `BUILDIN_SPACE_<WS>` | UUID space'а workspace'а (`PERSONAL`, `WORK`, `FAMILY`, `GROWTH`, `AI_PATH`, `BLOG`). Нужны для setup-script |
 | `BUILDIN_DB_<WS>_<TYPE>` | Per-(workspace × type) DB id. Заполняется setup-script'ом или руками |
 | `BUILDIN_DB_<TYPE>` | Per-type fallback DB id (без workspace-разреза) |
 | `BUILDIN_DB_DEFAULT` | Финальный fallback DB id |
