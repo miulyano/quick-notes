@@ -4,6 +4,10 @@ All notable changes to this project follow [Semantic Versioning](https://semver.
 
 ## [Unreleased]
 
+### Fixed
+- OpenAI client timeout поднят с 30s до 120s. Длинные ответы (большой prompt,
+  reasoning-модели) больше не падают с `APITimeoutError` после двух retry.
+
 ### Added
 - Новый workspace `blog` («Блог») для идей постов, черновиков статей и
   публичных текстов. Новый env `BUILDIN_SPACE_BLOG`.
