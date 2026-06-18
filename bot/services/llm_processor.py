@@ -37,7 +37,7 @@ class ProcessedNote:
 _client_override: Any = None
 _client_real: Any = None
 
-OPENAI_TIMEOUT_SECS = 30.0
+OPENAI_TIMEOUT_SECS = 120.0
 OPENAI_MAX_RETRIES = 2
 
 
